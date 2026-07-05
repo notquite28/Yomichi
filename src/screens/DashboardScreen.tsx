@@ -2,7 +2,7 @@ import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass
 import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, Easing, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { AccessibilityInfo, Animated, Easing, Linking, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { WaniKaniClient } from '../domain/api/WaniKaniClient';
@@ -31,6 +31,8 @@ import { LevelProgressChart } from '../components/LevelProgressChart';
 import { ReviewForecastChart } from '../components/ReviewForecastChart';
 import { SrsBar } from '../components/SrsBar';
 import { TooltipPressable } from '../components/TooltipPressable';
+import { checkForUpdate, UpdateInfo } from '../domain/update/updateService';
+import { getDismissedUpdateVersion, setDismissedUpdateVersion } from '../domain/update/updateDismissal';
 import { RootStackParamList } from '../navigation/types';
 import { useAppTheme } from '../theme/AppThemeProvider';
 import { withAlpha } from '../theme/colorUtils';
@@ -58,6 +60,7 @@ export function DashboardScreen({ apiToken, navigation, onAuthError }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [hasLoadedSummary, setHasLoadedSummary] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -74,6 +77,34 @@ export function DashboardScreen({ apiToken, navigation, onAuthError }: Props) {
       subscription?.remove?.();
     };
   }, []);
+
+  // Best-effort check for a newer GitHub release. Fully offline-tolerant: any
+  // failure resolves to null and shows nothing. Skips versions the user already
+  // dismissed so a given release only prompts once.
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return undefined;
+    }
+    let isMounted = true;
+    (async () => {
+      const info = await checkForUpdate();
+      if (!isMounted || !info) return;
+      const dismissed = await getDismissedUpdateVersion();
+      if (isMounted && dismissed !== info.latestVersion) {
+        setUpdateInfo(info);
+      }
+    })().catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const dismissUpdate = useCallback(() => {
+    if (updateInfo) {
+      void setDismissedUpdateVersion(updateInfo.latestVersion);
+    }
+    setUpdateInfo(null);
+  }, [updateInfo]);
 
   useEffect(() => {
     if (reduceMotion) {
@@ -291,6 +322,44 @@ export function DashboardScreen({ apiToken, navigation, onAuthError }: Props) {
           <Text className="overflow-hidden rounded-lg px-4 py-[13px] bg-warning dark:bg-warning-dark text-white dark:text-[#1d1200] text-[14px] font-black tracking-wider">
             Vacation mode active
           </Text>
+        ) : null}
+
+        {updateInfo ? (
+          <View
+            className="rounded-2xl p-4 bg-[#fffdf8] dark:bg-[#15141a] border-2 border-kanji flex-row items-center gap-3"
+            style={panelShadow}
+            accessibilityLiveRegion="polite"
+          >
+            <View className="flex-1">
+              <Text className="text-text dark:text-text-dark text-[14px] font-black tracking-wide">
+                Update available
+              </Text>
+              <Text className="mt-0.5 text-text-muted dark:text-text-muted-dark text-[12px] font-bold tracking-wide">
+                v{updateInfo.latestVersion} — you have v{updateInfo.currentVersion}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Download update version ${updateInfo.latestVersion}`}
+              onPress={() => {
+                Linking.openURL(updateInfo.downloadUrl).catch(() => {});
+              }}
+              className="rounded-full px-4 py-2 bg-kanji"
+              style={({ pressed }) => (pressed ? { opacity: 0.7 } : undefined)}
+            >
+              <Text className="text-white text-[12px] font-black tracking-wide">Download</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss update notice"
+              onPress={dismissUpdate}
+              hitSlop={8}
+              className="rounded-full w-8 h-8 items-center justify-center bg-[#f2eee8] dark:bg-[#201e26]"
+              style={({ pressed }) => (pressed ? { opacity: 0.7 } : undefined)}
+            >
+              <Text className="text-text-muted dark:text-text-muted-dark text-[16px] font-black leading-none">×</Text>
+            </Pressable>
+          </View>
         ) : null}
 
         {shouldShowFirstSync ? (

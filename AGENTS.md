@@ -4,6 +4,8 @@
 
 Yomiji is a private Expo/React Native + TypeScript WaniKani study app for Android/iOS. It authenticates with a WaniKani API token, downloads user/subject/assignment/study-material/review-stat data into SQLite, then runs dashboard, lessons, reviews, practice, search, details, diagnostics, notifications, and local study-material edits from cache.
 
+Core domain logic (review state machine, answer checker, lesson flow, sync architecture, settings) was ported from the Tsurukame iOS app; `tsurukame/` holds the original Swift/UIKit source as a behavior reference only — do not ship or import from it.
+
 ## Architecture & Data Flow
 
 - `App.tsx` is the root shell: imports `global.css`, registers Expo notification handling at module scope, wraps `AppNavigator` in `SafeAreaProvider` and `AppThemeProvider`, maps app theme colors into React Navigation, and hosts global toasts.
