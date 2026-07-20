@@ -161,6 +161,64 @@ describe('runIncrementalSync', () => {
     expect(parsed.data.meaning_synonyms).toEqual(['remote']);
   });
 
+  it('preserves local offline assignment progress when pending flush is deferred by reserve', async () => {
+    const subjectId = 310;
+    const assignmentId = 610;
+    const vocab = makeVocabulary({ id: subjectId });
+    const assignment = makeAssignment(subjectId, {
+      id: assignmentId,
+      subject_id: subjectId,
+      srs_stage: 1,
+      started_at: '2024-01-01T00:00:00.000Z',
+      available_at: '2024-01-01T00:00:00.000Z',
+    });
+    await putSubjects(db, [vocab]);
+    await putAssignments(db, [assignment]);
+    await queueReviewResult(db, {
+      assignmentId,
+      incorrectMeaningAnswers: 0,
+      incorrectReadingAnswers: 0,
+    });
+
+    const local = await db.getFirstAsync<{ srs_stage: number; available_at: string | null }>(
+      'SELECT srs_stage, available_at FROM assignments WHERE id = ?',
+      assignmentId,
+    );
+    expect(local?.srs_stage).toBe(2);
+    expect(local?.available_at).toBeNull();
+
+    // Remote still shows the pre-review assignment. Budget is only enough for
+    // download reserve, so the pending review is not flushed before putAssignments.
+    const remoteAssignment = makeAssignment(subjectId, {
+      id: assignmentId,
+      subject_id: subjectId,
+      srs_stage: 1,
+      started_at: '2024-01-01T00:00:00.000Z',
+      available_at: '2024-01-01T00:00:00.000Z',
+    });
+    const mockApi = createMockApi({
+      requestsRemainingInInterval: 21,
+      getUser: async () => makeUser(),
+      getSubjects: async () => collectionResult('2024-06-01T01:00:00.000Z', [vocab]),
+      getAssignments: async () => collectionResult('2024-06-01T02:00:00.000Z', [remoteAssignment]),
+      getStudyMaterials: async () => collectionResult('2024-06-01T03:00:00.000Z'),
+      getLevelProgressions: async () => collectionResult('2024-06-01T04:00:00.000Z'),
+      getVoiceActors: async () => collectionResult('2024-06-01T05:00:00.000Z'),
+      getReviewStatistics: async () => collectionResult('2024-06-01T06:00:00.000Z'),
+    });
+
+    await runIncrementalSync({ db, client: mockApi as unknown as WaniKaniClient });
+
+    const pending = await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM pending_progress');
+    expect(pending?.count).toBe(1);
+    const after = await db.getFirstAsync<{ srs_stage: number; available_at: string | null }>(
+      'SELECT srs_stage, available_at FROM assignments WHERE id = ?',
+      assignmentId,
+    );
+    expect(after?.srs_stage).toBe(2);
+    expect(after?.available_at).toBeNull();
+  });
+
   it('writes cursor freshness rows for empty collections with no updated cursor', async () => {
     const mockApi = createMockApi({
       getUser: async () => makeUser(),
@@ -594,6 +652,37 @@ describe('runFullRefresh', () => {
 
     const orphan = await db.getFirstAsync('SELECT subject_id FROM subject_progress WHERE subject_id = ?', 910);
     expect(orphan).toBeNull();
+  });
+
+  it('preserves subject_progress when full refresh download fails after cache clear', async () => {
+    const vocab = makeVocabulary({ id: 920 });
+    await putSubjects(db, [vocab]);
+    const lastMistakeAt = '2026-06-10T09:00:00.000Z';
+    await db.runAsync(
+      'INSERT INTO subject_progress (subject_id, level, srs_stage, subject_type, last_mistake_at) VALUES (?, ?, ?, ?, ?)',
+      920,
+      5,
+      3,
+      'vocabulary',
+      lastMistakeAt,
+    );
+
+    const mockApi = createMockApi({
+      getUser: async () => {
+        throw apiError(500, 'WaniKani unavailable');
+      },
+    });
+
+    await expect(runFullRefresh({ db, client: mockApi as unknown as WaniKaniClient })).rejects.toBeTruthy();
+
+    // Cache clear no longer deletes subject_progress, so a failed re-download
+    // must leave local mistake history intact even though subjects are gone.
+    const progress = await db.getFirstAsync<{ subject_id: number; last_mistake_at: string | null }>(
+      'SELECT subject_id, last_mistake_at FROM subject_progress WHERE subject_id = ?',
+      920,
+    );
+    expect(progress?.subject_id).toBe(920);
+    expect(progress?.last_mistake_at).toBe(lastMistakeAt);
   });
 
   it('dedupes concurrent full refreshes', async () => {

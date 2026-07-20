@@ -209,6 +209,16 @@ export function LessonSessionScreen({ navigation, route }: Props) {
       taskType: taskType ?? 'meaning',
       subjectFinished: markResult.subjectFinished,
     });
+    if (markResult.subjectFinished) {
+      const finished = session.completedItems[session.completedItems.length - 1];
+      if (finished) {
+        void openAppDatabase()
+          .then((db) => queueLessonStart(db, finished.assignmentId))
+          .catch((caught: unknown) => {
+            setError(caught instanceof Error ? caught.message : String(caught));
+          });
+      }
+    }
   };
 
   const continueQuiz = async () => {
@@ -220,14 +230,7 @@ export function LessonSessionScreen({ navigation, route }: Props) {
     setError(null);
 
     try {
-      if (feedback.subjectFinished) {
-        const item = session.completedItems[session.completedItems.length - 1];
-        if (item) {
-          const db = await openAppDatabase();
-          await queueLessonStart(db, item.assignmentId);
-        }
-      }
-
+      // Lesson starts are queued as soon as the item finishes; Continue only advances UI.
       setFeedback(null);
       setAnswer('');
       clearGuidance();

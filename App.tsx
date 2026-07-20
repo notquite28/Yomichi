@@ -18,6 +18,7 @@ import {
 	getLastNotificationResponse,
 	clearLastNotificationResponse,
 } from "./src/domain/notifications/expoNotifications";
+import { getApiToken } from "./src/domain/storage/secureToken";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 import type { RootStackParamList } from "./src/navigation/types";
 import { AppThemeProvider, useAppTheme } from "./src/theme/AppThemeProvider";
@@ -75,53 +76,79 @@ function Root() {
  * Handles notification taps by navigating to the appropriate screen.
  * Lives inside NavigationContainer so the ref is ready.
  * In Expo Go these listeners are no-ops.
+ *
+ * Waits for both navigation readiness and a stored API token so cold-start
+ * taps do not fire while the Login-only stack is still mounted.
  */
 function NotificationTapHandler() {
 	const handledInitial = useRef(false);
 
 	useEffect(() => {
+		let timeoutId: ReturnType<typeof setTimeout> | undefined;
+		let cancelled = false;
+
+		const navigateToReviewsWhenReady = () => {
+			let attempts = 0;
+			const tryNavigate = async () => {
+				if (cancelled) return;
+				if (!navigationRef.isReady()) {
+					if (++attempts < 60) {
+						timeoutId = setTimeout(() => {
+							void tryNavigate();
+						}, 50);
+					}
+					return;
+				}
+
+				// Auth gate is async: wait until SecureStore has been read and a token
+				// exists before pushing ReviewSession onto the authenticated stack.
+				const token = await getApiToken().catch(() => null);
+				if (cancelled) return;
+				if (!token) {
+					if (++attempts < 60) {
+						timeoutId = setTimeout(() => {
+							void tryNavigate();
+						}, 50);
+					}
+					return;
+				}
+
+				if (navigationRef.isReady()) {
+					navigationRef.navigate("ReviewSession", undefined);
+				}
+			};
+			void tryNavigate();
+		};
+
 		// Handle notification taps while the app is running or brought from background.
 		const subscription = addNotificationResponseReceivedListener((response) => {
 			const data = response.notification.request.content.data as
 				| Record<string, unknown>
 				| undefined;
-			if (data?.screen === "reviews" && navigationRef.isReady()) {
-				navigationRef.navigate("ReviewSession", undefined);
+			if (data?.screen === "reviews") {
+				navigateToReviewsWhenReady();
 			}
 		});
 
-		let timeoutId: ReturnType<typeof setTimeout> | undefined;
-
 		// Handle cold start from a notification tap.
-		// The navigation ref may not be ready immediately on mount, so we
-		// retry with a short backoff until it is.
 		if (!handledInitial.current) {
 			handledInitial.current = true;
 			const lastResponse = getLastNotificationResponse();
 			if (lastResponse) {
-				let attempts = 0;
-				const navigateWhenReady = () => {
-					if (!navigationRef.isReady()) {
-						if (++attempts < 40) {
-							timeoutId = setTimeout(navigateWhenReady, 50);
-						}
-						return;
-					}
-					const data = lastResponse.notification.request.content.data as
-						| Record<string, unknown>
-						| undefined;
-					if (data?.screen === "reviews") {
-						navigationRef.navigate("ReviewSession", undefined);
-					}
-					clearLastNotificationResponse();
-				};
-				navigateWhenReady();
+				const data = lastResponse.notification.request.content.data as
+					| Record<string, unknown>
+					| undefined;
+				if (data?.screen === "reviews") {
+					navigateToReviewsWhenReady();
+				}
+				clearLastNotificationResponse();
 			}
 		}
 
 		return () => {
+			cancelled = true;
 			subscription.remove();
-			if (timeoutId !== undefined) clearTimeout(timeoutId);
+			clearTimeout(timeoutId);
 		};
 	}, []);
 

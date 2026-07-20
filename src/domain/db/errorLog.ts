@@ -1,5 +1,5 @@
 import { WaniKaniApiError } from '../api/WaniKaniClient';
-import { AppDatabase } from './database';
+import { AppDatabase, runExclusive } from './database';
 
 export type ErrorLogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -124,12 +124,14 @@ function isHibernationMessage(message: string): boolean {
 }
 
 export async function logError(db: AppDatabase, level: ErrorLogLevel, message: string, context?: string): Promise<void> {
-  await db.runAsync(
-    'INSERT INTO error_log (level, message, context, created_at) VALUES (?, ?, ?, ?)',
-    level,
-    sanitize(message).slice(0, MAX_MESSAGE_LENGTH),
-    context ? sanitize(context).slice(0, MAX_CONTEXT_LENGTH) : null,
-    new Date().toISOString(),
+  await runExclusive(() =>
+    db.runAsync(
+      'INSERT INTO error_log (level, message, context, created_at) VALUES (?, ?, ?, ?)',
+      level,
+      sanitize(message).slice(0, MAX_MESSAGE_LENGTH),
+      context ? sanitize(context).slice(0, MAX_CONTEXT_LENGTH) : null,
+      new Date().toISOString(),
+    ),
   );
 }
 
@@ -157,10 +159,10 @@ export async function getErrorLogCount(db: AppDatabase): Promise<number> {
 
 export async function pruneErrorLog(db: AppDatabase, maxAgeMs = 7 * 24 * 60 * 60 * 1000): Promise<number> {
   const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
-  const result = await db.runAsync('DELETE FROM error_log WHERE created_at < ?', cutoff);
+  const result = await runExclusive(() => db.runAsync('DELETE FROM error_log WHERE created_at < ?', cutoff));
   return result.changes;
 }
 
 export async function clearErrorLog(db: AppDatabase): Promise<void> {
-  await db.execAsync('DELETE FROM error_log');
+  await runExclusive(() => db.execAsync('DELETE FROM error_log'));
 }

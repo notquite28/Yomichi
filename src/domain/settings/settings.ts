@@ -158,10 +158,23 @@ export async function loadSettings(): Promise<AppSettings> {
   return merged;
 }
 
+let settingsWriteChain: Promise<unknown> = Promise.resolve();
+
+/**
+ * Applies a patch to persisted settings. Writes are serialized so concurrent
+ * updateSetting calls cannot lose keys via read-modify-write races.
+ */
 export async function saveSettings(patch: Partial<AppSettings>) {
-  const current = await loadSettings();
-  const next = { ...current, ...patch } as Record<string, unknown>;
-  next['_version'] = CURRENT_SETTINGS_VERSION;
-  await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
-  return { ...current, ...patch } as AppSettings;
+  const run = settingsWriteChain.then(async () => {
+    const current = await loadSettings();
+    const next = { ...current, ...patch } as Record<string, unknown>;
+    next['_version'] = CURRENT_SETTINGS_VERSION;
+    await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+    return { ...current, ...patch } as AppSettings;
+  });
+  settingsWriteChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
 }

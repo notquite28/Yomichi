@@ -164,15 +164,10 @@ export function runIncrementalSync(options: SyncOptions): Promise<void> {
 }
 
 export function runPendingSync(options: SyncOptions): Promise<void> {
-  // A pending-only sync in flight is purely a flush, so reuse it.
-  if (activeSync && activeSyncKind === 'pending') {
-    subscribeToActiveSync(options);
-    return activeSync;
-  }
-  // An incremental/full sync flushes pending writes only at its start, so
-  // writes queued after that phase would be stranded if we reused it. Chain a
-  // fresh flush after the active sync instead so late writes (e.g. a review
-  // answered or the app backgrounded mid-sync) are not missed.
+  // Never reuse an in-flight pending-only sync: sendPending* SELECTs a batch
+  // once, so writes queued after that SELECT would be stranded until a later
+  // third flush. Chain a fresh drain after the prior sync instead (same
+  // pattern already used when an incremental/full is active).
   const prior = activeSync;
   return beginSync('pending', options, async (fanout) => {
     if (prior) {
@@ -351,10 +346,10 @@ export async function runFullRefresh(options: SyncOptions): Promise<void> {
       throw new SyncError('Full refresh postponed until queued writes are synced.', 'rate-limit', true);
     }
     // subject_progress holds local-only review history (recent mistakes,
-    // leeches) that the download never repopulates. Snapshot it before the
-    // clear and restore it after the re-download so a full refresh does not
-    // erase that history; restore is FK-guarded against subjects dropped by the
-    // refresh.
+    // leeches) that the download never repopulates. clearRemoteCache leaves
+    // those rows in place (FK off while subjects are wiped) so a failed
+    // download cannot erase history. After a successful re-download, restore
+    // re-upserts the snapshot and prunes orphans whose subjects are gone.
     const progressSnapshot = await snapshotSubjectProgress(fanout.db);
     await clearRemoteCache(fanout.db);
     await runDownloadSync(fanout);
@@ -379,6 +374,18 @@ async function sendPendingProgress(db: AppDatabase, client: WaniKaniClient, limi
         await client.startAssignment(JSON.parse(row.payload) as LessonStartPayload);
       } else if (row.kind === 'review') {
         await client.createReview(JSON.parse(row.payload) as ReviewProgressPayload);
+      } else {
+        // Unknown kinds must not be deleted: that would silently drop data if a
+        // future write path introduces a new kind or a row is corrupt.
+        await runExclusive(() =>
+          db.runAsync(
+            'UPDATE pending_progress SET attempts = attempts + 1, last_error = ? WHERE id = ?',
+            `unknown pending_progress kind: ${row.kind}`,
+            row.id,
+          ),
+        );
+        await logSyncError(db, new Error(`unknown pending_progress kind: ${row.kind}`), 'pending_progress: unknown kind').catch(() => {});
+        throw new Error(`unknown pending_progress kind: ${row.kind}`);
       }
       await runExclusive(() => db.runAsync('DELETE FROM pending_progress WHERE id = ?', row.id));
       sent += 1;
@@ -388,14 +395,17 @@ async function sendPendingProgress(db: AppDatabase, client: WaniKaniClient, limi
         await runExclusive(() => db.runAsync('DELETE FROM pending_progress WHERE id = ?', row.id));
         continue;
       }
-      await runExclusive(() =>
-        db.runAsync(
-          'UPDATE pending_progress SET attempts = attempts + 1, last_error = ? WHERE id = ?',
-          error instanceof Error ? error.message : String(error),
-          row.id,
-        ),
-      );
-      await logSyncError(db, error, `pending_progress: ${row.kind} send failed`).catch(() => {});
+      // Skip re-updating when we already recorded the unknown-kind failure above.
+      if (!(error instanceof Error && error.message.startsWith('unknown pending_progress kind:'))) {
+        await runExclusive(() =>
+          db.runAsync(
+            'UPDATE pending_progress SET attempts = attempts + 1, last_error = ? WHERE id = ?',
+            error instanceof Error ? error.message : String(error),
+            row.id,
+          ),
+        );
+        await logSyncError(db, error, `pending_progress: ${row.kind} send failed`).catch(() => {});
+      }
       throw error;
     }
   }

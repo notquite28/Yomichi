@@ -25,6 +25,8 @@ export function RecentItemList({
           onPress={() => onPressItem?.(item.subjectId)}
           disabled={!onPressItem}
           style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
+          accessibilityRole={onPressItem ? 'button' : undefined}
+          accessibilityLabel={`${item.japanese || 'subject'}, Level ${item.level}, ${item.subjectType}`}
         >
           <View style={[styles.typeDot, { backgroundColor: colorForSubjectType(colors, item.subjectType) }]} importantForAccessibility="no" />
           <Text style={[styles.chipJapanese, { color: colors.text }]}>{item.japanese || '?'}</Text>
@@ -56,7 +58,8 @@ export function LeechItemList({
           onPress={() => onPressItem?.(item.subjectId)}
           disabled={!onPressItem}
           style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
-          accessibilityLabel={`${item.japanese || '?  '}, Level ${item.level}, ${item.score}% incorrect`}
+          accessibilityRole={onPressItem ? 'button' : undefined}
+          accessibilityLabel={`${item.japanese || '?'}, Level ${item.level}, ${item.score}% incorrect`}
         >
           <View style={[styles.typeDot, { backgroundColor: colorForSubjectType(colors, item.subjectType) }]} importantForAccessibility="no" />
           <Text style={[styles.chipJapanese, { color: colors.text }]}>{item.japanese || '?'}</Text>

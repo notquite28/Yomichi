@@ -263,4 +263,53 @@ describe('runPendingSync', () => {
     expect(client.upsertStudyMaterial).toHaveBeenNthCalledWith(2, updatePayload);
     expect(db.pendingStudyMaterials).toEqual([]);
   });
+
+  it('chains a second pending flush after an in-flight pending-only sync', async () => {
+    const firstPayload: ReviewProgressPayload = {
+      assignmentId: 202,
+      incorrectMeaningAnswers: 0,
+      incorrectReadingAnswers: 0,
+    };
+    const secondPayload: ReviewProgressPayload = {
+      assignmentId: 203,
+      incorrectMeaningAnswers: 1,
+      incorrectReadingAnswers: 0,
+    };
+    const db = new FakePendingDb();
+    db.pendingProgress = [{ id: 'review-1', kind: 'review', payload: JSON.stringify(firstPayload) }];
+    let releaseFirst!: () => void;
+    const blockedFirst = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const client = makeClient({
+      createReview: jest
+        .fn()
+        .mockImplementationOnce(() => blockedFirst)
+        .mockResolvedValueOnce(undefined),
+    });
+
+    const first = runPendingSync({ db: db as never, client });
+    await Promise.resolve();
+    // Late write arrives while the first flush is still sending its SELECT batch.
+    db.pendingProgress.push({ id: 'review-2', kind: 'review', payload: JSON.stringify(secondPayload) });
+    const second = runPendingSync({ db: db as never, client });
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    expect(client.createReview).toHaveBeenCalledTimes(2);
+    expect(client.createReview).toHaveBeenNthCalledWith(1, firstPayload);
+    expect(client.createReview).toHaveBeenNthCalledWith(2, secondPayload);
+    expect(db.pendingProgress).toEqual([]);
+  });
+
+  it('does not delete unknown pending_progress kinds', async () => {
+    const db = new FakePendingDb();
+    db.pendingProgress = [{ id: 'mystery', kind: 'future-kind', payload: '{}' }];
+    const client = makeClient();
+
+    await expect(runPendingSync({ db: db as never, client })).rejects.toThrow(/unknown pending_progress kind/);
+    expect(db.pendingProgress).toHaveLength(1);
+    expect(db.pendingProgress[0]?.id).toBe('mystery');
+    expect(db.updates.some((update) => update.table === 'pending_progress' && update.id === 'mystery')).toBe(true);
+  });
 });

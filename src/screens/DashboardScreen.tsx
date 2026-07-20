@@ -492,7 +492,7 @@ export function DashboardScreen({ apiToken, navigation, onAuthError }: Props) {
                 <Text className="text-white text-[13px] font-black tracking-wide">Practice</Text>
               </Pressable>
             </View>
-            <RecentItemList items={recentMistakes} colors={colors} />
+            <RecentItemList items={recentMistakes} colors={colors} onPressItem={(subjectId) => navigation.navigate('SubjectDetail', { subjectId })} />
           </View>
         ) : null}
 
@@ -508,7 +508,7 @@ export function DashboardScreen({ apiToken, navigation, onAuthError }: Props) {
                 <Text className="text-white text-[13px] font-black tracking-wide">Practice</Text>
               </Pressable>
             </View>
-            <LeechItemList items={allLeeches} colors={colors} />
+            <LeechItemList items={allLeeches} colors={colors} onPressItem={(subjectId) => navigation.navigate('SubjectDetail', { subjectId })} />
           </View>
         ) : null}
 
@@ -524,7 +524,7 @@ export function DashboardScreen({ apiToken, navigation, onAuthError }: Props) {
                 <Text className="text-white text-[13px] font-black tracking-wide">Practice</Text>
               </Pressable>
             </View>
-            <LeechItemList items={apprenticeLeeches} colors={colors} />
+            <LeechItemList items={apprenticeLeeches} colors={colors} onPressItem={(subjectId) => navigation.navigate('SubjectDetail', { subjectId })} />
           </View>
         ) : null}
 

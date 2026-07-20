@@ -297,6 +297,18 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
     playAudioForItem(item);
   };
 
+  const persistFinishedReview = async (item: ReviewItem) => {
+    if (session?.isPracticeSession) {
+      return;
+    }
+    const db = await openAppDatabase();
+    await queueReviewResult(db, {
+      assignmentId: item.assignmentId,
+      incorrectMeaningAnswers: item.meaningWrongCount,
+      incorrectReadingAnswers: item.readingWrongCount,
+    });
+  };
+
   const submit = () => {
     if (!session || !currentItem || feedback) {
       return;
@@ -384,18 +396,11 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
     setError(null);
 
     try {
-      if (lastMarkResult?.subjectFinished && !session.isPracticeSession) {
-        const item = session.completedItems[session.completedItems.length - 1];
-        if (item) {
-          const db = await openAppDatabase();
-          await queueReviewResult(db, {
-            assignmentId: item.assignmentId,
-            incorrectMeaningAnswers: item.meaningWrongCount,
-            incorrectReadingAnswers: item.readingWrongCount,
-          });
-        }
+      // Queue a finished review only after the feedback decision is final, so
+      // overrides, synonyms, and "ask again later" cannot create stale writes.
+      if (feedback.subjectFinished) {
+        await persistFinishedReview(feedback.item);
       }
-
       setFeedback(null);
       setAnswer('');
       setLastMarkResult(null);

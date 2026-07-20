@@ -16,6 +16,8 @@ import { migrations } from './schema';
 export type AppDatabase = SQLite.SQLiteDatabase;
 type SaveProgressCallback = (saved: number, total: number) => void;
 
+const SUBJECT_LOOKUP_BATCH_SIZE = 500;
+
 let databasePromise: Promise<AppDatabase> | null = null;
 
 /**
@@ -196,11 +198,48 @@ export async function putSubjects(db: AppDatabase, subjects: Array<ApiResource<S
 }
 
 export async function putAssignments(db: AppDatabase, assignments: Array<ApiResource<AssignmentData>>, onProgress?: SaveProgressCallback) {
-  const subjects = await db.getAllAsync<{ id: number; level: number; subject_type: string }>('SELECT id, level, subject_type FROM subjects');
-  const subjectById = new Map(subjects.map((subject) => [subject.id, subject]));
+  // Prefer selective subject lookup for the batch; fall back only if empty.
+  const subjectIds = [
+    ...new Set(
+      assignments
+        .map((assignment) => assignment.data?.subject_id)
+        .filter((id): id is number => typeof id === 'number' && id > 0),
+    ),
+  ];
+  const subjectById = new Map<number, { id: number; level: number; subject_type: string }>();
+  for (let start = 0; start < subjectIds.length; start += SUBJECT_LOOKUP_BATCH_SIZE) {
+    const subjectIdBatch = subjectIds.slice(start, start + SUBJECT_LOOKUP_BATCH_SIZE);
+    const subjects = await db.getAllAsync<{ id: number; level: number; subject_type: string }>(
+      `SELECT id, level, subject_type FROM subjects WHERE id IN (${subjectIdBatch.map(() => '?').join(', ')})`,
+      ...subjectIdBatch,
+    );
+    for (const subject of subjects) {
+      subjectById.set(subject.id, subject);
+    }
+  }
   let saved = 0;
 
   await runInWriteTransaction(db, async () => {
+    // Offline review/lesson writes apply local srs/available/started/passed
+    // immediately and queue pending_progress. If a download runs before those
+    // rows flush (rate-limit reserve), remote assignment payloads would clobber
+    // that local state and re-surface finished items. Preserve local columns
+    // while a matching pending row exists — study materials already do the same.
+    const pendingRows = await db.getAllAsync<{ kind: string; payload: string }>(
+      `SELECT kind, payload FROM pending_progress WHERE kind IN ('review', 'lesson-start')`,
+    );
+    const pendingAssignmentIds = new Set<number>();
+    for (const row of pendingRows) {
+      try {
+        const payload = JSON.parse(row.payload) as { assignmentId?: number };
+        if (typeof payload.assignmentId === 'number' && payload.assignmentId > 0) {
+          pendingAssignmentIds.add(payload.assignmentId);
+        }
+      } catch {
+        // Corrupt pending payload: ignore for overlay; send path handles it.
+      }
+    }
+
     for (const assignment of assignments) {
       if (!assignment.id) {
         saved += 1;
@@ -210,6 +249,23 @@ export async function putAssignments(db: AppDatabase, assignments: Array<ApiReso
 
       const subject = subjectById.get(assignment.data.subject_id);
       const subjectType = assignment.data.subject_type === 'kana_vocabulary' ? 'vocabulary' : assignment.data.subject_type;
+      const preserveLocalProgress = pendingAssignmentIds.has(assignment.id);
+      const existing = preserveLocalProgress
+        ? await db.getFirstAsync<{
+            srs_stage: number;
+            available_at: string | null;
+            started_at: string | null;
+            passed_at: string | null;
+          }>(
+            'SELECT srs_stage, available_at, started_at, passed_at FROM assignments WHERE id = ?',
+            assignment.id,
+          )
+        : null;
+
+      const srsStage = existing?.srs_stage ?? assignment.data.srs_stage;
+      const availableAt = existing ? existing.available_at : (assignment.data.available_at ?? null);
+      const startedAt = existing ? existing.started_at : (assignment.data.started_at ?? null);
+      const passedAt = existing ? existing.passed_at : (assignment.data.passed_at ?? null);
 
       await db.runAsync(
         `INSERT INTO assignments (id, subject_id, level, subject_type, srs_stage, available_at, started_at, passed_at, burned_at, payload, updated_at)
@@ -229,10 +285,10 @@ export async function putAssignments(db: AppDatabase, assignments: Array<ApiReso
         assignment.data.subject_id,
         subject?.level ?? null,
         subjectType || subject?.subject_type || 'unknown',
-        assignment.data.srs_stage,
-        assignment.data.available_at ?? null,
-        assignment.data.started_at ?? null,
-        assignment.data.passed_at ?? null,
+        srsStage,
+        availableAt,
+        startedAt,
+        passedAt,
         assignment.data.burned_at ?? null,
         JSON.stringify(assignment),
         assignment.data_updated_at ?? null,
@@ -395,7 +451,7 @@ export type SubjectProgressRow = {
 
 /**
  * Reads the full subject_progress table. These rows hold local-only review
- * history (recent mistakes, leech tracking) that the download sync never
+ * history (recent mistakes, leeches) that the download sync never
  * repopulates, so a caller that clears the remote cache must snapshot them
  * first and restore them afterwards or the history is lost.
  */
@@ -409,11 +465,9 @@ export async function snapshotSubjectProgress(db: AppDatabase): Promise<SubjectP
  * Restores a subject_progress snapshot taken before a cache clear. Each row is
  * only re-inserted when its subject still exists so the subject_id FK into
  * subjects(id) holds even if the subject was dropped by the refresh.
+ * Also prunes any leftover orphan rows that survived clearRemoteCache.
  */
 export async function restoreSubjectProgress(db: AppDatabase, rows: SubjectProgressRow[]) {
-  if (rows.length === 0) {
-    return;
-  }
   await runInWriteTransaction(db, async () => {
     for (const row of rows) {
       await db.runAsync(
@@ -433,6 +487,11 @@ export async function restoreSubjectProgress(db: AppDatabase, rows: SubjectProgr
         row.subject_id,
       );
     }
+    // Drop progress rows whose subject no longer exists after the refresh.
+    await db.runAsync(
+      `DELETE FROM subject_progress
+       WHERE subject_id NOT IN (SELECT id FROM subjects)`,
+    );
   });
 }
 
@@ -443,6 +502,15 @@ export async function clearRemoteCache(db: AppDatabase) {
   // flushed, and it holds local writes that must never be wiped as a side effect
   // of clearing the remote cache. pending_progress has no such FK and is
   // likewise preserved.
+  //
+  // subject_progress is also preserved here: it holds local-only review history
+  // (recent mistakes). Full refresh snapshots/restores it and prunes orphans
+  // after a successful re-download. Leaving it intact means a failed refresh
+  // mid-download cannot permanently erase that history.
+  //
+  // SQLite refuses to change foreign_keys inside an open transaction, so we
+  // take the write lock, flip the pragma, then BEGIN/COMMIT manually rather
+  // than using runInWriteTransaction.
   const tables = [
     'sync_cursors',
     'assignments',
@@ -451,19 +519,14 @@ export async function clearRemoteCache(db: AppDatabase) {
     'voice_actors',
     'review_stats',
     'audio_urls',
-    'subject_progress',
     'error_log',
     'subjects',
     'user',
   ];
 
-  await runInWriteTransaction(db, async () => {
-    // Guard inside the transaction so the check and the deletes are serialized
-    // under the same lock: a concurrent queued edit cannot slip in between the
-    // count and the DELETE FROM subjects (which would otherwise rollback on an
-    // FK violation). Callers (full refresh) flush queued writes first; this
-    // assert makes the function safe even if a future caller forgets, instead of
-    // silently destroying unsent study-material edits.
+  await runExclusive(async () => {
+    // Guard under the same lock as the deletes so a concurrent queued edit
+    // cannot slip in between the count and DELETE FROM subjects.
     const pending = await db.getFirstAsync<{ value: number }>(
       'SELECT COUNT(*) AS value FROM pending_study_materials',
     );
@@ -471,8 +534,20 @@ export async function clearRemoteCache(db: AppDatabase) {
       throw new Error('clearRemoteCache called with unflushed study-material writes; flush them before clearing the cache.');
     }
 
-    for (const table of tables) {
-      await db.execAsync(`DELETE FROM ${table};`);
+    await db.execAsync('PRAGMA foreign_keys = OFF;');
+    try {
+      await db.execAsync('BEGIN TRANSACTION;');
+      try {
+        for (const table of tables) {
+          await db.execAsync(`DELETE FROM ${table};`);
+        }
+        await db.execAsync('COMMIT;');
+      } catch (error) {
+        await db.execAsync('ROLLBACK;');
+        throw error;
+      }
+    } finally {
+      await db.execAsync('PRAGMA foreign_keys = ON;');
     }
   });
 }

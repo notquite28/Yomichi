@@ -120,152 +120,189 @@ function osAllowsCapability(
  * 2. **Daily reminder** — native DAILY trigger, fires every day at the
  *    configured hour without requiring app opens.
  */
+let rescheduleGeneration = 0;
+let rescheduleInFlight: Promise<void> | null = null;
+
 export async function rescheduleReviewNotifications(): Promise<void> {
-	const config = await readNotificationConfig();
+  // Coalesce concurrent reschedules (foreground + settings + background).
+  // A later call bumps generation so an older cancel/schedule pair cannot wipe
+  // notifications scheduled by a newer run.
+  const generation = ++rescheduleGeneration;
+  if (rescheduleInFlight) {
+    try {
+      await rescheduleInFlight;
+    } catch {
+      // Previous run's failure must not block this generation.
+    }
+    if (generation !== rescheduleGeneration) {
+      return;
+    }
+  }
 
-	// If no notification feature is enabled, clear and bail.
-	if (!config.enabled && !config.badging) {
-		await clearReviewNotifications();
-		return;
-	}
+  const run = (async () => {
+    const stillCurrent = () => generation === rescheduleGeneration;
 
-	// Check OS-level permission.
-	const permissionStatus = await getNotificationPermissionStatus();
-	if (permissionStatus === "denied") {
-		await clearReviewNotifications();
-		return;
-	}
-	if (permissionStatus === "undetermined") {
-		// Don't schedule until the user grants permission via settings.
-		return;
-	}
+    const config = await readNotificationConfig();
+    if (!stillCurrent()) return;
 
-	const db = await openAppDatabase();
+    // If no notification feature is enabled, clear and bail.
+    if (!config.enabled && !config.badging) {
+      await clearReviewNotifications();
+      return;
+    }
 
-	// Check vacation mode.
-	const user = await db.getFirstAsync<{ vacation_started_at: string | null }>(
-		"SELECT vacation_started_at FROM user WHERE id = 1",
-	);
-	if (user?.vacation_started_at != null) {
-		await clearReviewNotifications();
-		return;
-	}
+    // Check OS-level permission.
+    const permissionStatus = await getNotificationPermissionStatus();
+    if (!stillCurrent()) return;
+    if (permissionStatus === "denied") {
+      await clearReviewNotifications();
+      return;
+    }
+    if (permissionStatus === "undetermined") {
+      // Don't schedule until the user grants permission via settings.
+      return;
+    }
 
-	// Cancel all previously scheduled review notifications (including legacy).
-	await cancelScheduledReviewNotifications();
+    const db = await openAppDatabase();
+    if (!stillCurrent()) return;
 
-	// Use a single timestamp for all queries to avoid race between two clock reads.
-	const now = new Date();
+    // Check vacation mode.
+    const user = await db.getFirstAsync<{ vacation_started_at: string | null }>(
+      "SELECT vacation_started_at FROM user WHERE id = 1",
+    );
+    if (user?.vacation_started_at != null) {
+      await clearReviewNotifications();
+      return;
+    }
 
-	// Current available reviews.
-	const availableRow = await db.getFirstAsync<{ value: number }>(
-		`SELECT COUNT(*) AS value
+    // Cancel all previously scheduled review notifications (including legacy).
+    await cancelScheduledReviewNotifications();
+    if (!stillCurrent()) return;
+
+    // Use a single timestamp for all queries to avoid race between two clock reads.
+    const now = new Date();
+
+    // Current available reviews.
+    const availableRow = await db.getFirstAsync<{ value: number }>(
+      `SELECT COUNT(*) AS value
      FROM assignments
      WHERE srs_stage BETWEEN 1 AND 8
        AND available_at IS NOT NULL
        AND available_at <= ?`,
-		now.toISOString(),
-	);
-	const availableReviewCount = availableRow?.value ?? 0;
+      now.toISOString(),
+    );
+    const availableReviewCount = availableRow?.value ?? 0;
 
-	// Set badge immediately (not on the notification content — avoids stale counts).
-	if (config.badging) {
-		await ExpoNotifications.setBadgeCountAsync(availableReviewCount);
-	}
+    // Set badge immediately (not on the notification content — avoids stale counts).
+    if (config.badging) {
+      await ExpoNotifications.setBadgeCountAsync(availableReviewCount);
+    }
+    if (!stillCurrent()) return;
 
-	if (!config.enabled) {
-		// Badge-only mode, no notifications to schedule.
-		return;
-	}
+    if (!config.enabled) {
+      // Badge-only mode, no notifications to schedule.
+      return;
+    }
 
-	// Get system notification settings for capability checks.
-	const systemSettings = await ExpoNotifications.getPermissionsAsync();
+    // Get system notification settings for capability checks.
+    const systemSettings = await ExpoNotifications.getPermissionsAsync();
+    if (!stillCurrent()) return;
 
 
-	// --- Threshold notification (one-shot DATE trigger) ---
-	if (availableReviewCount < config.threshold) {
-		const remaining = config.threshold - availableReviewCount;
-		const offset = remaining - 1; // 0-indexed OFFSET
-		const row = await db.getFirstAsync<{ available_at: string }>(
-			`SELECT available_at
+    // --- Threshold notification (one-shot DATE trigger) ---
+    if (availableReviewCount < config.threshold) {
+      const remaining = config.threshold - availableReviewCount;
+      const offset = remaining - 1; // 0-indexed OFFSET
+      const row = await db.getFirstAsync<{ available_at: string }>(
+        `SELECT available_at
        FROM assignments
        WHERE srs_stage BETWEEN 1 AND 8
          AND available_at IS NOT NULL
          AND available_at > ?
        ORDER BY available_at ASC
        LIMIT 1 OFFSET ?`,
-			now.toISOString(),
-			offset,
-		);
-		if (row?.available_at) {
-			const triggerDate = new Date(row.available_at);
-			if (triggerDate > now) {
-				const triggerType =
-					ExpoNotifications.SchedulableTriggerInputTypes?.DATE;
-				if (triggerType) {
-					const content: Notifications.NotificationContentInput = {
-						title: "Reviews Available",
-						data: { screen: "reviews" },
-					};
+        now.toISOString(),
+        offset,
+      );
+      if (row?.available_at) {
+        const triggerDate = new Date(row.available_at);
+        if (triggerDate > now) {
+          const triggerType =
+            ExpoNotifications.SchedulableTriggerInputTypes?.DATE;
+          if (triggerType) {
+            const content: Notifications.NotificationContentInput = {
+              title: "Reviews Available",
+              data: { screen: "reviews" },
+            };
 
-					if (osAllowsCapability(systemSettings, "alert")) {
-						content.body = `${config.threshold} reviews are waiting`;
-					}
+            if (osAllowsCapability(systemSettings, "alert")) {
+              content.body = `${config.threshold} reviews are waiting`;
+            }
 
-					if (
-						Platform.OS === "ios" &&
-						config.sounds &&
-						osAllowsCapability(systemSettings, "sound")
-					) {
-						content.sound = "default";
-					}
+            if (
+              Platform.OS === "ios" &&
+              config.sounds &&
+              osAllowsCapability(systemSettings, "sound")
+            ) {
+              content.sound = "default";
+            }
 
-					await ExpoNotifications.scheduleNotificationAsync({
-						identifier: NOTIFICATION_ID_REVIEW,
-						content,
-						trigger: {
-							type: triggerType,
-							date: triggerDate,
-						},
-					});
-				}
-			}
-		}
-	}
+            if (!stillCurrent()) return;
+            await ExpoNotifications.scheduleNotificationAsync({
+              identifier: NOTIFICATION_ID_REVIEW,
+              content,
+              trigger: {
+                type: triggerType,
+                date: triggerDate,
+              },
+            });
+          }
+        }
+      }
+    }
 
-	// --- Daily reminder (native recurring DAILY trigger) ---
-	if (config.dailyTime != null) {
-		const triggerType =
-			ExpoNotifications.SchedulableTriggerInputTypes?.DAILY;
-		if (triggerType) {
-			const content: Notifications.NotificationContentInput = {
-				title: "Daily Reminder",
-				data: { screen: "reviews" },
-			};
+    // --- Daily reminder (native recurring DAILY trigger) ---
+    if (config.dailyTime != null) {
+      const triggerType =
+        ExpoNotifications.SchedulableTriggerInputTypes?.DAILY;
+      if (triggerType) {
+        const content: Notifications.NotificationContentInput = {
+          title: "Daily Reminder",
+          data: { screen: "reviews" },
+        };
 
-			if (osAllowsCapability(systemSettings, "alert")) {
-				content.body = "Check your reviews";
-			}
+        if (osAllowsCapability(systemSettings, "alert")) {
+          content.body = "Check your reviews";
+        }
 
-			if (
-				Platform.OS === "ios" &&
-				config.sounds &&
-				osAllowsCapability(systemSettings, "sound")
-			) {
-				content.sound = "default";
-			}
+        if (
+          Platform.OS === "ios" &&
+          config.sounds &&
+          osAllowsCapability(systemSettings, "sound")
+        ) {
+          content.sound = "default";
+        }
 
-			await ExpoNotifications.scheduleNotificationAsync({
-				identifier: NOTIFICATION_ID_DAILY,
-				content,
-				trigger: {
-					type: triggerType,
-					hour: config.dailyTime,
-					minute: 0,
-				},
-			});
-		}
-	}
+        if (!stillCurrent()) return;
+        await ExpoNotifications.scheduleNotificationAsync({
+          identifier: NOTIFICATION_ID_DAILY,
+          content,
+          trigger: {
+            type: triggerType,
+            hour: config.dailyTime,
+            minute: 0,
+          },
+        });
+      }
+    }
+  })();
+
+  rescheduleInFlight = run.finally(() => {
+    if (rescheduleInFlight === run) {
+      rescheduleInFlight = null;
+    }
+  });
+  await rescheduleInFlight;
 }
 
 /**

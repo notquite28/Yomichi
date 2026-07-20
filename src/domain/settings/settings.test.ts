@@ -148,4 +148,21 @@ describe('saveSettings', () => {
     expect(savedArg.reviewBatchSize).toBe(8);
     expect(savedArg.appearance).toBeUndefined();
   });
+
+  test('serializes concurrent patches so later keys are not lost', async () => {
+    let stored = JSON.stringify({ ...defaultSettings, _version: CURRENT_SETTINGS_VERSION });
+    mockedGetItem.mockImplementation(async () => stored);
+    mockedSetItem.mockImplementation(async (_key: string, value: string) => {
+      stored = value;
+    });
+
+    await Promise.all([
+      saveSettings({ reviewBatchSize: 8 }),
+      saveSettings({ lessonBatchSize: 3 }),
+    ]);
+
+    const saved = JSON.parse(stored);
+    expect(saved.reviewBatchSize).toBe(8);
+    expect(saved.lessonBatchSize).toBe(3);
+  });
 });

@@ -1,6 +1,6 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { LiquidGlassButton } from '../components/LiquidGlassButton';
@@ -99,59 +99,64 @@ export function SubjectSearchScreen({ navigation }: Props) {
         />
       </View>
 
-      <ScrollView
+      <FlatList
+        data={!error && !isSearching && query.trim() && !(searched && results.length === 0) ? results : []}
+        keyExtractor={(item) => String(item.id)}
         contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 28, gap: 6 }}
         keyboardShouldPersistTaps="handled"
-      >
-        {error ? (
-          <Text className="text-base font-bold text-text-muted dark:text-text-muted-dark pt-6 text-center" accessibilityRole="alert">
-            Could not search subjects: {error}
-          </Text>
-        ) : isSearching ? (
-          <Text className="text-base font-bold text-text-muted dark:text-text-muted-dark pt-6 text-center">
-            Searching...
-          </Text>
-        ) : !query.trim() ? (
-          <Text className="text-base font-bold text-text-muted dark:text-text-muted-dark pt-6 text-center">
-            Search synced subjects by Japanese, meaning, or reading. If this is your first launch, sync from the dashboard first.
-          </Text>
-        ) : searched && results.length === 0 ? (
-          <Text className="text-base font-bold text-text-muted dark:text-text-muted-dark pt-6 text-center">
-            No results found for "{query}". Try another spelling, or sync from the dashboard if local data is empty.
-          </Text>
-        ) : (
-          results.map((item) => {
-            const color = colorForSubjectType(colors, item.subjectType);
-            return (
-              <Pressable
-                key={item.id}
-                onPress={() => navigation.navigate('SubjectDetail', { subjectId: item.id })}
-                className="flex-row items-center gap-3 py-3 px-[14px] rounded-md bg-[#fffdf8] dark:bg-[#15141a] border border-[rgba(32,26,36,0.06)] dark:border-[rgba(255,255,255,0.06)]"
-                style={({ pressed }) =>
-                  pressed ? { opacity: 0.72, transform: [{ scale: 0.99 }] } : undefined
-                }
-                accessibilityRole="button"
-                accessibilityLabel={`${item.japanese || 'subject'}, level ${item.level}, ${item.subjectType}${item.percentageCorrect != null ? `, ${item.percentageCorrect}% correct` : ''}`}
-              >
-                <View className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
-                <View className="flex-1 gap-0.5">
-                  <Text className="text-lg font-black text-text dark:text-text-dark">
-                    {item.japanese || '?'}
-                  </Text>
-                  <Text className="text-xs font-bold text-text-muted dark:text-text-muted-dark capitalize">
-                    L{item.level} · {item.subjectType}
-                  </Text>
-                </View>
-                {item.percentageCorrect != null ? (
-                  <Text className="text-[13px] font-heavy text-text-muted dark:text-text-muted-dark">
-                    {item.percentageCorrect}%
-                  </Text>
-                ) : null}
-              </Pressable>
-            );
-          })
-        )}
-      </ScrollView>
+        ListEmptyComponent={
+          error ? (
+            <Text className="text-base font-bold text-text-muted dark:text-text-muted-dark pt-6 text-center" accessibilityRole="alert">
+              Could not search subjects: {error}
+            </Text>
+          ) : isSearching ? (
+            <Text className="text-base font-bold text-text-muted dark:text-text-muted-dark pt-6 text-center">
+              Searching...
+            </Text>
+          ) : !query.trim() ? (
+            <Text className="text-base font-bold text-text-muted dark:text-text-muted-dark pt-6 text-center">
+              Search synced subjects by Japanese, meaning, or reading. If this is your first launch, sync from the dashboard first.
+            </Text>
+          ) : searched && results.length === 0 ? (
+            <Text className="text-base font-bold text-text-muted dark:text-text-muted-dark pt-6 text-center">
+              No results found for "{query}". Try another spelling, or sync from the dashboard if local data is empty.
+            </Text>
+          ) : null
+        }
+        renderItem={({ item }) => {
+          const color = colorForSubjectType(colors, item.subjectType);
+          return (
+            <Pressable
+              onPress={() => navigation.navigate('SubjectDetail', { subjectId: item.id })}
+              className="flex-row items-center gap-3 py-3 px-[14px] rounded-md bg-[#fffdf8] dark:bg-[#15141a] border border-[rgba(32,26,36,0.06)] dark:border-[rgba(255,255,255,0.06)]"
+              style={({ pressed }) =>
+                pressed ? { opacity: 0.72, transform: [{ scale: 0.99 }] } : undefined
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`${item.japanese || 'subject'}, level ${item.level}, ${item.subjectType}${item.percentageCorrect != null ? `, ${item.percentageCorrect}% correct` : ''}`}
+            >
+              <View className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
+              <View className="flex-1 gap-0.5">
+                <Text className="text-lg font-black text-text dark:text-text-dark">
+                  {item.japanese || '?'}
+                </Text>
+                <Text className="text-xs font-bold text-text-muted dark:text-text-muted-dark capitalize">
+                  L{item.level} · {item.subjectType}
+                </Text>
+              </View>
+              {item.percentageCorrect != null ? (
+                <Text className="text-[13px] font-heavy text-text-muted dark:text-text-muted-dark">
+                  {item.percentageCorrect}%
+                </Text>
+              ) : null}
+            </Pressable>
+          );
+        }}
+        initialNumToRender={20}
+        windowSize={10}
+        maxToRenderPerBatch={20}
+        keyboardDismissMode="on-drag"
+      />
     </SafeAreaView>
   );
 }

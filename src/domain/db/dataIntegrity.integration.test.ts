@@ -132,6 +132,25 @@ describe('foreign key constraints', () => {
     expect(count?.count).toBe(1);
   });
 
+  it('chunks subject lookups for large assignment batches', async () => {
+    const subjectCount = 501;
+    const subjects = Array.from({ length: subjectCount }, (_, index) => makeVocabulary({ id: index + 1 }));
+    const assignments = Array.from({ length: subjectCount }, (_, index) =>
+      makeAssignment(index + 1, { id: subjectCount + index + 1, subject_id: index + 1 }),
+    );
+    await putSubjects(db, subjects);
+
+    const getAllAsync = jest.spyOn(db, 'getAllAsync');
+    await putAssignments(db, assignments);
+
+    const subjectLookupCalls = getAllAsync.mock.calls.filter(([source]) =>
+      source.startsWith('SELECT id, level, subject_type FROM subjects WHERE id IN'),
+    );
+    expect(subjectLookupCalls).toHaveLength(2);
+    expect(subjectLookupCalls[0]?.slice(1)).toHaveLength(500);
+    expect(subjectLookupCalls[1]?.slice(1)).toHaveLength(1);
+  });
+
   it('cascades correctly when deleting parent subject', async () => {
     const vocab = makeVocabulary({ id: 500 });
     await putSubjects(db, [vocab]);
