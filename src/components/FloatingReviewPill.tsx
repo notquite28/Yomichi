@@ -92,10 +92,10 @@ export function FloatingReviewPill({
     ? 'Show Answer'
     : feedback
       ? isContinuing
-        ? 'Saving...'
+        ? 'Saving answer'
         : feedback.correct
-          ? 'Continue'
-          : 'Got it wrong'
+          ? 'Continue after correct answer'
+          : 'Continue after incorrect answer'
       : 'Submit Answer';
 
   const primaryIcon = 'arrow-forward';
@@ -156,6 +156,9 @@ export function FloatingReviewPill({
                 entering={FadeInDown.springify().damping(22).stiffness(200).mass(0.8)}
                 exiting={FadeOut.duration(120)}
                 layout={controlMotion()}
+                accessible
+                accessibilityLiveRegion="polite"
+                accessibilityLabel={`${feedback.message}. ${feedback.detail}`}
                 className="px-5 pt-3 pb-1 gap-0.5 items-center"
               >
                 <Text className="text-base font-black" style={{ color: accentColor }}>

@@ -236,9 +236,9 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
   const isComplete = !feedback && (session?.isComplete ?? false);
   const showPill = displayItem !== null && !isComplete;
   const isVocabulary = displayItem?.subjectType === 'vocabulary';
-  const progress = session
-    ? `${Math.min(session.reviewsCompleted + (feedback?.subjectFinished ? 0 : 1), session.totalReviews)}/${session.totalReviews}`
-    : '0/0';
+  const reviewPosition = session
+    ? Math.min(session.reviewsCompleted + (feedback?.subjectFinished ? 0 : 1), session.totalReviews)
+    : 0;
   const completedItems = session?.completedItems ?? [];
   const shouldConfirmLeave = session !== null && !isComplete;
   const { confirmLeave, allowLeavingRef, handleBack, handleCancelLeave, handleConfirmLeave: rawHandleConfirmLeave } =
@@ -609,7 +609,11 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
     >
       <SessionHeader
         onBack={handleBack}
-        progress={progress}
+        progress={{
+          label: `Review ${reviewPosition} of ${session?.totalReviews ?? 0}`,
+          current: reviewPosition,
+          total: session?.totalReviews ?? 0,
+        }}
         dimmed={confirmLeave}
         onSettings={() => setQuickSettingsOpen(true)}
       />
@@ -666,7 +670,7 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
           returnKeyType="next"
           submitBehavior="submit"
           accessibilityLabel={displayTaskType === 'meaning' ? 'Review meaning answer' : 'Review reading answer'}
-          accessibilityHint="Enter your answer for the current review prompt."
+          accessibilityHint={guidanceMessage ? `${guidanceMessage}. Edit your answer and submit again.` : 'Enter your answer for the current review prompt.'}
           onSubmitEditing={feedback ? continueSession : submit}
         />
       )}
@@ -680,7 +684,12 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
       ) : null}
 
       {guidanceMessage && !feedback ? (
-        <Text className="text-warning dark:text-warning-dark font-heavy">{guidanceMessage}</Text>
+        <Text
+          accessibilityLiveRegion="polite"
+          className="text-warning dark:text-warning-dark font-heavy"
+        >
+          {guidanceMessage}
+        </Text>
       ) : null}
 
       {session?.wrappingUp ? (

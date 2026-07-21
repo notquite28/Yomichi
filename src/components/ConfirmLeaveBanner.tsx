@@ -43,12 +43,17 @@ export function ConfirmLeaveBanner({
         className="absolute inset-0"
         onPress={onCancel}
         accessibilityRole="button"
-        accessibilityLabel="Dismiss confirmation"
+        accessibilityLabel={cancelLabel}
+        accessibilityHint="Dismisses this confirmation and returns to the active session."
       />
 
       <View className="bg-surface-elevated dark:bg-surface-elevated-dark rounded-2xl border border-border dark:border-border-dark p-5 gap-3 shadow-lg">
 
-        <Text className="text-[17px] font-black text-text dark:text-text-dark">
+        <Text
+          accessibilityRole="alert"
+          accessibilityLabel={`${title}. ${message}`}
+          className="text-[17px] font-black text-text dark:text-text-dark"
+        >
           {title}
         </Text>
         <Text className="text-[14px] leading-5 text-text-muted dark:text-text-muted-dark">

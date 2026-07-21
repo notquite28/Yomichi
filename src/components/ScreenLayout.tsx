@@ -3,6 +3,14 @@ import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollVie
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { LiquidGlassButton } from './LiquidGlassButton';
+import { useAppTheme } from '../theme/AppThemeProvider';
+
+export type SessionProgress = {
+  label: string;
+  current: number;
+  total: number;
+};
+
 
 export function ScreenLayout({
   children,
@@ -128,10 +136,15 @@ export function SessionHeader({
   dimmed = false,
 }: {
   onBack: () => void;
-  progress: string;
+  progress: string | SessionProgress;
   onSettings?: () => void;
   dimmed?: boolean;
 }) {
+  const { colors } = useAppTheme();
+  const completion = typeof progress === 'string' || progress.total <= 0
+    ? 0
+    : Math.min(1, Math.max(0, progress.current / progress.total));
+
   return (
     <View className="flex-row items-center justify-between">
       <LiquidGlassButton
@@ -142,9 +155,43 @@ export function SessionHeader({
         style={{ paddingHorizontal: 14, paddingVertical: 10, minHeight: 38, justifyContent: 'center' }}
         contentClassName="font-black"
       />
-      <Text className="text-text-muted dark:text-text-muted-dark font-black">
-        {progress}
-      </Text>
+      {typeof progress === 'string' ? (
+        <Text className="text-text-muted dark:text-text-muted-dark font-black">
+          {progress}
+        </Text>
+      ) : (
+        <View className="items-center gap-1">
+          <Text
+            accessibilityRole="text"
+            accessibilityLabel={progress.label}
+            className="text-text-muted dark:text-text-muted-dark font-black"
+          >
+            {progress.label}
+          </Text>
+          {progress.total > 0 ? (
+            <View
+              accessible={false}
+              importantForAccessibility="no"
+              style={{
+                width: 72,
+                height: 4,
+                borderRadius: 9999,
+                overflow: 'hidden',
+                backgroundColor: colors.border,
+              }}
+            >
+              <View
+                style={{
+                  width: `${completion * 100}%`,
+                  height: '100%',
+                  borderRadius: 9999,
+                  backgroundColor: colors.kanji,
+                }}
+              />
+            </View>
+          ) : null}
+        </View>
+      )}
       {onSettings ? (
         <LiquidGlassButton
           tooltip="Quick settings"

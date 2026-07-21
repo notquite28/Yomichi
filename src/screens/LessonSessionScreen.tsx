@@ -1,5 +1,5 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { AnswerCheckResult, checkAnswer, classifyAnswerResult, TaskType, SubjectAnswerData } from '../domain/answers/answerChecker';
@@ -42,6 +42,10 @@ type Feedback = {
   taskType: TaskType;
   subjectFinished: boolean;
 };
+type LessonStartAttempt = {
+  assignmentId: number;
+  result: Promise<boolean>;
+};
 
 export function LessonSessionScreen({ navigation, route }: Props) {
   const { colors } = useAppTheme();
@@ -52,6 +56,7 @@ export function LessonSessionScreen({ navigation, route }: Props) {
 
   const [phase, setPhase] = useState<LessonPhase>('intro');
   const [introIndex, setIntroIndex] = useState(0);
+  const [visitedIntroIndexes, setVisitedIntroIndexes] = useState<ReadonlySet<number>>(() => new Set([0]));
   const [componentSubjects, setComponentSubjects] = useState<Map<number, SubjectAnswerData>>(new Map());
   const [batchIndex, setBatchIndex] = useState(0);
   const [completedTasks, setCompletedTasks] = useState(0);
@@ -63,6 +68,7 @@ export function LessonSessionScreen({ navigation, route }: Props) {
   const [isContinuing, setIsContinuing] = useState(false);
 
   const sessionRef = useRef<ReviewSession | null>(null);
+  const lessonStartAttemptRef = useRef<LessonStartAttempt | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
   const reviewSettings = useMemo<ReviewSessionSettings>(
@@ -145,6 +151,11 @@ export function LessonSessionScreen({ navigation, route }: Props) {
       isMounted = false;
     };
   }, []);
+  const changeIntroIndex = useCallback((nextIndex: number) => {
+    setIntroIndex(nextIndex);
+    setVisitedIntroIndexes((indexes) => new Set(indexes).add(nextIndex));
+  }, []);
+
 
   const startQuiz = () => {
     const session = new ReviewSession(activeBatch, reviewSettings, true);
@@ -160,9 +171,9 @@ export function LessonSessionScreen({ navigation, route }: Props) {
   const displayTaskType = feedback?.taskType ?? taskType;
   const isQuizComplete = phase === 'quiz' && !feedback && (session?.isComplete ?? false);
   const hasNextBatch = batchIndex < lessonBatches.length - 1;
-  const quizProgress = session
-    ? `${Math.min(session.reviewsCompleted + (feedback?.subjectFinished ? 0 : 1), session.totalReviews)}/${session.totalReviews}`
-    : '0/0';
+  const quizPosition = session
+    ? Math.min(session.reviewsCompleted + (feedback?.subjectFinished ? 0 : 1), session.totalReviews)
+    : 0;
   const currentCompletedTasks = completedTasks + (session?.tasksAnswered ?? 0);
   const currentCompletedTasksCorrectly = completedTasksCorrectly + (session?.tasksAnsweredCorrectly ?? 0);
   const overallSuccessRate = currentCompletedTasks > 0
@@ -212,11 +223,16 @@ export function LessonSessionScreen({ navigation, route }: Props) {
     if (markResult.subjectFinished) {
       const finished = session.completedItems[session.completedItems.length - 1];
       if (finished) {
-        void openAppDatabase()
-          .then((db) => queueLessonStart(db, finished.assignmentId))
-          .catch((caught: unknown) => {
-            setError(caught instanceof Error ? caught.message : String(caught));
-          });
+        lessonStartAttemptRef.current = {
+          assignmentId: finished.assignmentId,
+          result: openAppDatabase()
+            .then((db) => queueLessonStart(db, finished.assignmentId))
+            .then(() => true)
+            .catch((caught: unknown) => {
+              setError(caught instanceof Error ? caught.message : String(caught));
+              return false;
+            }),
+        };
       }
     }
   };
@@ -230,7 +246,22 @@ export function LessonSessionScreen({ navigation, route }: Props) {
     setError(null);
 
     try {
-      // Lesson starts are queued as soon as the item finishes; Continue only advances UI.
+      if (feedback.subjectFinished) {
+        const finished = session.completedItems[session.completedItems.length - 1];
+        if (finished) {
+          const attempt = lessonStartAttemptRef.current;
+          const saved = attempt?.assignmentId === finished.assignmentId
+            ? await attempt.result
+            : false;
+          if (!saved) {
+            const db = await openAppDatabase();
+            await queueLessonStart(db, finished.assignmentId);
+          }
+          lessonStartAttemptRef.current = null;
+        }
+      }
+
+      setError(null);
       setFeedback(null);
       setAnswer('');
       clearGuidance();
@@ -259,6 +290,7 @@ export function LessonSessionScreen({ navigation, route }: Props) {
     setFeedback(null);
     clearGuidance();
     setIntroIndex(0);
+    setVisitedIntroIndexes(new Set([0]));
     setBatchIndex((value) => value + 1);
     setPhase('intro');
   };
@@ -290,7 +322,8 @@ export function LessonSessionScreen({ navigation, route }: Props) {
         index={introIndex}
         batchIndex={batchIndex}
         batchCount={lessonBatches.length}
-        onIndexChange={setIntroIndex}
+        onIndexChange={changeIntroIndex}
+        visitedIndexes={visitedIntroIndexes}
         onStartQuiz={startQuiz}
         onBack={handleBack}
         subjectLookup={subjectLookup}
@@ -371,7 +404,11 @@ export function LessonSessionScreen({ navigation, route }: Props) {
     >
       <SessionHeader
         onBack={handleBack}
-        progress={`Quiz ${quizProgress}`}
+        progress={{
+          label: `Quiz review ${quizPosition} of ${session?.totalReviews ?? 0}`,
+          current: quizPosition,
+          total: session?.totalReviews ?? 0,
+        }}
         dimmed={confirmLeave}
       />
 
@@ -408,7 +445,7 @@ export function LessonSessionScreen({ navigation, route }: Props) {
         returnKeyType="next"
         submitBehavior="submit"
         accessibilityLabel={displayTaskType === 'meaning' ? 'Lesson meaning answer' : 'Lesson reading answer'}
-        accessibilityHint="Enter your answer for the current lesson quiz prompt."
+        accessibilityHint={guidanceMessage ? `${guidanceMessage}. Edit your answer and submit again.` : 'Enter your answer for the current lesson quiz prompt.'}
         onSubmitEditing={feedback ? continueQuiz : submitQuizAnswer}
       />
 
@@ -417,7 +454,12 @@ export function LessonSessionScreen({ navigation, route }: Props) {
       ) : null}
 
       {guidanceMessage && !feedback ? (
-        <Text className="text-warning dark:text-warning-dark font-heavy">{guidanceMessage}</Text>
+        <Text
+          accessibilityLiveRegion="polite"
+          className="text-warning dark:text-warning-dark font-heavy"
+        >
+          {guidanceMessage}
+        </Text>
       ) : null}
 
     </ScreenLayout>
@@ -428,6 +470,7 @@ function IntroPhase({
   items,
   index,
   batchIndex,
+  visitedIndexes,
   batchCount,
   onIndexChange,
   onStartQuiz,
@@ -442,6 +485,7 @@ function IntroPhase({
   batchCount: number;
   onIndexChange: (index: number) => void;
   onStartQuiz: () => void;
+  visitedIndexes: ReadonlySet<number>;
   onBack: () => void;
   subjectLookup: Map<number, SubjectAnswerData>;
   confirmLeaveBanner?: React.ReactNode;
@@ -455,9 +499,13 @@ function IntroPhase({
 
   const subjectColor = colorForSubjectType(colors, item.subjectType);
   const isLast = index === items.length - 1;
-  const progress = batchCount > 1
-    ? `Batch ${batchIndex + 1}/${batchCount} · ${index + 1}/${items.length}`
-    : `${index + 1}/${items.length}`;
+  const progress = {
+    label: batchCount > 1
+      ? `Batch ${batchIndex + 1} of ${batchCount}, lesson ${index + 1} of ${items.length}`
+      : `Lesson ${index + 1} of ${items.length}`,
+    current: index + 1,
+    total: items.length,
+  };
 
   return (
     <ScreenLayout scrollable overlay={confirmLeaveBanner}>
@@ -471,7 +519,10 @@ function IntroPhase({
             <Pressable
               key={chipItem.subjectId}
               onPress={() => onIndexChange(chipIndex)}
-              className="rounded-[12px] px-2.5 py-1.5 border"
+              accessibilityRole="button"
+              accessibilityState={{ selected: isActive }}
+              accessibilityLabel={`${chipItem.subject.japanese || 'subject'}, lesson ${chipIndex + 1} of ${items.length}, ${isActive ? 'current' : visitedIndexes.has(chipIndex) ? 'viewed' : 'not viewed'}`}
+              className="flex-row items-center gap-1 rounded-[12px] px-2.5 py-1.5 border"
               style={{
                 backgroundColor: isActive ? chipColor : colors.surface,
                 borderColor: isActive ? chipColor : colors.border,
@@ -483,6 +534,14 @@ function IntroPhase({
               >
                 {chipItem.subject.japanese || '?'}
               </Text>
+              {visitedIndexes.has(chipIndex) && !isActive ? (
+                <View
+                  accessible={false}
+                  importantForAccessibility="no"
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{ backgroundColor: colors.mutedText }}
+                />
+              ) : null}
             </Pressable>
           );
         })}
@@ -507,6 +566,9 @@ function IntroPhase({
           onPress={() => onIndexChange(index - 1)}
           className={`flex-1 min-h-[52px] items-center justify-center rounded-lg border border-border dark:border-border-dark bg-surface dark:bg-surface-dark ${index === 0 ? 'opacity-40' : ''}`}
           style={({ pressed }) => pressed ? { opacity: index === 0 ? 0.4 : 0.58 } : undefined}
+          accessibilityRole="button"
+          accessibilityLabel="Previous lesson"
+          accessibilityState={{ disabled: index === 0 }}
         >
           <Text
             className={`text-base font-black ${index === 0 ? 'text-text-muted dark:text-text-muted-dark' : 'text-text dark:text-text-dark'}`}
@@ -518,6 +580,8 @@ function IntroPhase({
         {isLast ? (
           <Pressable
             onPress={onStartQuiz}
+            accessibilityRole="button"
+            accessibilityLabel="Start lesson quiz"
             className="flex-1 min-h-[52px] items-center justify-center rounded-lg px-[18px]"
             style={({ pressed }) => [
               { backgroundColor: subjectColor },
@@ -529,6 +593,8 @@ function IntroPhase({
         ) : (
           <Pressable
             onPress={() => onIndexChange(index + 1)}
+            accessibilityRole="button"
+            accessibilityLabel="Next lesson"
             className="flex-1 min-h-[52px] items-center justify-center rounded-lg px-[18px]"
             style={({ pressed }) => [
               { backgroundColor: subjectColor },

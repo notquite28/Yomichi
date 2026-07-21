@@ -45,7 +45,13 @@ export function LessonActionPill({
   const pillBg = isLiquidGlassSupported ? glassBg : fallbackBg;
   const effectivePillBg = compositeAlpha(pillBg, colors.background);
   const disabled = isContinuing || (!feedback && answerEmpty);
-  const label = feedback ? (isContinuing ? 'Saving...' : 'Continue') : 'Submit Answer';
+  const label = feedback
+    ? isContinuing
+      ? 'Saving answer'
+      : feedback.correct
+        ? 'Continue after correct answer'
+        : 'Continue after incorrect answer'
+    : 'Submit Answer';
   const bottomPadding = Platform.OS === 'android' ? Math.max(20, keyboardHeight) : 20;
 
   return (
@@ -102,6 +108,9 @@ export function LessonActionPill({
               entering={FadeInDown.springify().damping(22).stiffness(200).mass(0.8)}
               exiting={FadeOut.duration(120)}
               layout={controlMotion()}
+              accessible
+              accessibilityLiveRegion="polite"
+              accessibilityLabel={`${feedback.message}. ${feedback.detail}`}
               className="px-5 pt-3 pb-1 gap-0.5 items-center"
             >
               <Text className="text-base font-black" style={{ color: accentColor }}>
