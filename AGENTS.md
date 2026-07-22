@@ -97,7 +97,7 @@ No lint or formatter script is defined in `package.json`.
 - `src/screens/DashboardScreen.tsx`, `ReviewSessionScreen.tsx`, `LessonSessionScreen.tsx`, `SettingsScreen.tsx`, `WeakSpotClinicScreen.tsx`, `DiagnosticsScreen.tsx` — main user flows.
 - `package.json`, `app.json`, `eas.json`, `tsconfig.json`, `jest.config.js`, `tailwind.config.js`, `metro.config.js`, `babel.config.js` — tooling/build config.
 - `scripts/version-bump.sh` — bumps package/app/native versions, commits `Release vX.Y.Z`, tags `vX.Y.Z`.
-- `.github/workflows/android-release.yml` — Android release: typecheck, test, Gradle `assembleRelease`, sign, GitHub Release.
+- `.github/workflows/android-release.yml` — Android release: typecheck, test, Gradle `assembleRelease` with ABI splits, sign, GitHub Release (`yomiji-arm64-v8a.apk` + `yomiji-armeabi-v7a.apk`).
 
 ## Runtime/Tooling Preferences
 
@@ -106,7 +106,7 @@ No lint or formatter script is defined in `package.json`.
 - `pnpm start` uses the Expo dev-client workflow, not plain Expo Go. Build/install a dev client with `pnpm android` or `pnpm ios` first.
 - NativeWind v4 is wired through `global.css`, `babel.config.js` (`nativewind/babel`), `metro.config.js` (`withNativeWind`), `tailwind.config.js`, and `nativewind-env.d.ts`. Tailwind scans only `App.tsx` and `src/**/*.{ts,tsx}`.
 - `app.json` controls Expo app identity, plugins (`expo-secure-store`, `expo-sqlite`, `expo-notifications`, `llama.rn`, predictive-back plugin), permissions, OTA updates, and runtime versions. Keep native Android config aligned when changing release-relevant settings.
-- Android release CI signs via secrets `YOMIJI_KEYSTORE_BASE64` and `YOMIJI_KEYSTORE_PASSWORD` (alias `yomiji`) and builds with `./gradlew :app:assembleRelease` (not EAS). Local/CI signing env vars: `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`.
+- Android release CI signs via secrets `YOMIJI_KEYSTORE_BASE64` and `YOMIJI_KEYSTORE_PASSWORD` (alias `yomiji`) and builds per-ABI APKs with `./gradlew :app:assembleRelease` (not EAS). Local/CI signing env vars: `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`.
 - EAS is configured for APK profiles (`eas.json` `appVersionSource: local`); prefer `pnpm version:bump <patch|minor|major>` over manual version edits.
 - Watch version drift across `package.json`, `app.json` (version/runtimeVersion/buildNumber/versionCode), and `android/app/build.gradle` (`versionName`/`versionCode`).
 

@@ -69,6 +69,16 @@ react {
 def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBuilds') ?: false).toBoolean()
 
 /**
+ * Ship one APK per ABI instead of a fat multi-ABI APK. Cuts download size
+ * roughly by the unused architecture's native libs (llama.rn alone is ~70MB
+ * of arm64-only prebuilts). GitHub Releases publish both APKs.
+ */
+def enableSeparateBuildPerCPUArchitecture = true
+
+// ABI → versionCode offset so multi-APK installs stay ordered (Play / sideload).
+def abiVersionCodes = ["armeabi-v7a": 1, "arm64-v8a": 2, "x86": 3, "x86_64": 4]
+
+/**
  * The preferred build flavor of JavaScriptCore (JSC)
  *
  * For example, to use the international variant, you can use:
@@ -97,6 +107,15 @@ android {
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
+    splits {
+        abi {
+            reset()
+            enable enableSeparateBuildPerCPUArchitecture
+            universalApk false
+            include "armeabi-v7a", "arm64-v8a"
+        }
+    }
+
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
@@ -146,6 +165,17 @@ android {
     }
     androidResources {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
+    }
+
+    applicationVariants.configureEach { variant ->
+        variant.outputs.configureEach { output ->
+            def abi = output.getFilter(com.android.build.OutputFile.ABI)
+            if (abi != null) {
+                def base = defaultConfig.versionCode
+                def offset = abiVersionCodes.get(abi, 0)
+                output.versionCodeOverride = base * 1000 + offset
+            }
+        }
     }
 }
 

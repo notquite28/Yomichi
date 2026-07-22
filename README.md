@@ -247,7 +247,7 @@ Use `pnpm` for dependency changes. Keep `pnpm-lock.yaml` current.
 - Version source of truth is `package.json` + `app.json`; EAS is configured with remote app version source and production auto-increment, so use `pnpm version:bump [patch|minor|major]` rather than editing native Gradle version fields directly.
 - `pnpm version:bump` updates `package.json` and `app.json`, increments Android `versionCode` and iOS `buildNumber`, commits `Release vX.Y.Z`, and creates an annotated `vX.Y.Z` tag.
 - Push with `git push --follow-tags origin main`. The Android Release workflow runs on `v*` tags or manual dispatch.
-- CI installs pnpm 9, Node 22, and Java 17; runs install/typecheck/tests; builds a production APK with `eas build --platform android --profile production --local --output build.apk`; verifies the APK signature; and publishes `build.apk` to a GitHub Release.
+- CI installs pnpm 9, Node 22, and Java 17; runs install/typecheck/tests; builds per-ABI release APKs with `./gradlew :app:assembleRelease` (`yomiji-arm64-v8a.apk`, `yomiji-armeabi-v7a.apk`); verifies each APK signature; and publishes both to a GitHub Release. Prefer the arm64 APK on modern devices; Study Coach (llama.rn) is arm64-only.
 - Required GitHub secrets: `EXPO_TOKEN`, `YOMIJI_KEYSTORE_BASE64`, and `YOMIJI_KEYSTORE_PASSWORD`. The release key alias is `yomiji`.
 - Release builds fail closed if signing material is missing; debug signing is only for local debug builds.
 
