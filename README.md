@@ -16,7 +16,7 @@ See `docs/ROADMAP.md` for the parity checklist, `USER_MANUAL.md` for feature-by-
 
 ## Current Status
 
-The app is an offline-first WaniKani client with a local SQLite cache, incremental sync, pending-write queues, error logging, local notifications, streamed vocabulary audio, and working dashboard, lesson, review, practice, search, subject detail, and diagnostics flows. The UI has been migrated to NativeWind/Tailwind for most screens and components while retaining theme-driven inline styles where React Native requires them (Switch colors, dynamic subject colors, shadows, inputs, and charts).
+The app is an offline-first WaniKani client with a local SQLite cache, incremental sync, pending-write queues, error logging, local notifications, streamed vocabulary audio, optional offline Study Coach (TinySwallow), and working dashboard, lesson, review, practice, search, subject detail, diagnostics, and Weak-Spot Clinic flows. The UI has been migrated to NativeWind/Tailwind for most screens and components while retaining theme-driven inline styles where React Native requires them (Switch colors, dynamic subject colors, shadows, inputs, and charts).
 
 ## Features
 
@@ -55,6 +55,8 @@ The app is an offline-first WaniKani client with a local SQLite cache, increment
 - Vacation mode banner.
 - Sync status, last sync time, and error display.
 - Lesson Picker button (visible when lessons are available).
+- On-demand **Study summary** card (deterministic metrics always; optional AI prose when the local model is installed).
+- **Weak-Spot Clinic** entry for recurring misses, leeches, and confusion pairs with practice deep links.
 - Immediate dashboard refresh when returning from review or lesson sessions.
 - Hour-boundary refresh while foregrounded via AppState listener.
 
@@ -79,6 +81,8 @@ The app is an offline-first WaniKani client with a local SQLite cache, increment
 
 **Anki Mode** — Self-grading with immediate combined answer reveal (meaning and reading together on one card).
 
+**Study Coach in reviews** — Optional Mistake Lens after repeated same-task misses or verified confusion pairs (deterministic card first; optional TinySwallow explanation on sparkles). Never blocks Continue. Intervention evaluation is tied to the active feedback task, so results finishing after the user advances are discarded. Free-form **AI: Explain this mistake** remains available when cheats and Study Coach are enabled.
+
 **Quick Settings** — Mid-session settings modal for toggling exact match, cheats, and full answer display without leaving the review. Includes Wrap Up and End Session actions. Changes persist to the main settings screen.
 
 ### Practice Modes
@@ -89,6 +93,7 @@ Practice sessions use the same review UI but never submit WaniKani SRS progress.
 - **Apprentice Leeches** — Apprentice-stage items with the highest incorrect-to-correct ratio.
 - **All Leeches** — All items with high incorrect-to-correct ratio, filtered by the configurable `leechThreshold` setting.
 - **Burned Items** — Items at SRS stage 9 (Burned) for review practice.
+- **Pair Practice** — Unscored practice for an explicit list of subject IDs (used by confusion-pair CTAs and Weak-Spot Clinic). Starting it from an active review pushes a fresh review-session route rather than replacing the current session.
 
 ### Lesson Sessions
 
@@ -127,7 +132,11 @@ Practice sessions use the same review UI but never submit WaniKani SRS progress.
 
 **Diagnostics** — Cache stats, sync state/cursors, pending write counts, error log viewer, sanitized export via Share sheet, and full refresh (clear cache and resync).
 
-**Log Out** — Clears token, cache, pending queues, and scheduled review notifications.
+**Study Coach** — Optional offline TinySwallow model download/enable controls. Generation is on-demand only (never auto-loads on app start or review start).
+
+**Learning History** — Clear local attempt log and intervention outcomes without deleting the model or logging out. Clearing publishes an in-app revision that immediately invalidates facts, deterministic text, and generated advice retained by a mounted Study Summary card. Logout still clears learning history with the rest of the local cache.
+
+**Log Out** — Clears token, cache, pending queues, scheduled review notifications, learning history, and coach cache.
 
 ### Shared Components
 
@@ -171,6 +180,14 @@ Practice sessions use the same review UI but never submit WaniKani SRS progress.
 - **Meaning Synonyms** — Existing meaning synonyms are shown and accepted during reviews. New synonyms can currently be added from the review cheat **Add as synonym** after an incorrect meaning answer.
 - **Note Editing** — Add/edit meaning and reading notes, queued for WaniKani API sync.
 
+### Offline Study Coach (TinySwallow)
+
+- Fully optional local LLM (`llama.rn` + TinySwallow GGUF). Never grades answers, approves synonyms, changes SRS, or orders queues.
+- Local `review_attempts` history powers Mistake Lens recurrence, confusion-pair detection, study-summary windows, and Weak-Spot Clinic.
+- Structured actions (`mistake_lens`, `study_summary`) validate JSON against allowlisted fact refs before caching; free-form subject actions remain available on subject detail.
+- Active Study Coach generation is cancelled and the model is released when the app backgrounds; idle loaded models are released as well. Learning-history prune runs on foreground (day-gated).
+
+
 ### Testing
 
 - Unit tests for answer checking (normalization, fuzzy matching, blacklists, okurigana, other readings).
@@ -186,6 +203,8 @@ Practice sessions use the same review UI but never submit WaniKani SRS progress.
 - Integration tests for clearReviewNotifications (cancels known IDs and resets badge).
 - Integration tests for WaniKani API pagination and `updated_after` cursors.
 - Integration tests for sync service incremental cursors and pending-write flush (reviews, lessons, study materials).
+- Integration tests for local attempt history (insert/override/discard, age/cap prune, orphan prune, clear).
+- Unit tests for Mistake Lens / confusion-pair evidence, structured coach validation, study-summary facts, and subject-ID practice queues.
 
 ## Known Major Gaps
 
@@ -240,17 +259,18 @@ src/
     answers/        # Answer checking, romaji-to-kana conversion
     api/            # WaniKani v2 REST client (WaniKaniClient.ts) + types
     audio/          # Vocabulary pronunciation audio selection and streaming playback
+    ai/             # TinySwallow model catalog/download, coach generation, structured output, prompts, cache
     db/             # SQLite open/migrations/put functions (database.ts, schema.ts, errorLog.ts, subjectRepository.ts, assignmentRepository.ts, studyMaterialRepository.ts)
-    dashboard/      # Dashboard query aggregation
+    dashboard/      # Dashboard query aggregation + study-summary facts
     notifications/  # Threshold + daily reminder scheduling, badge management, Expo Go shim
     settings/       # AppSettings, load/save via AsyncStorage
     storage/        # Secure token storage (expo-secure-store)
-    study/          # Review/lesson queue queries, result queueing, ordering, filtering
+    study/          # Review/lesson queue queries, result queueing, ordering, filtering, attempt history, interventions
     subjects/       # Radical image handling and SVG rendering
     sync/           # Incremental sync + pending-write flush (syncService.ts)
   navigation/       # React Navigation routes, auth gate, AppState lifecycle
-  screens/          # UI screens (Dashboard, Login, Settings, Diagnostics, ReviewSession, LessonSession, LessonPicker, RadicalImagePreview, SubjectCatalog, SubjectSearch, SubjectBrowse, SubjectDetail)
-  components/       # Shared UI components (ScreenLayout, SubjectHeroCard, SubjectDetailsContent, SrsBar, ReviewQuickSettings, ReviewForecastChart, LevelProgressChart, DashboardItemList)
+  screens/          # UI screens (Dashboard, Login, Settings, Diagnostics, ReviewSession, LessonSession, LessonPicker, WeakSpotClinic, RadicalImagePreview, SubjectCatalog, SubjectSearch, SubjectBrowse, SubjectDetail)
+  components/       # Shared UI components (ScreenLayout, SubjectHeroCard, SubjectDetailsContent, SrsBar, ReviewQuickSettings, StudySummaryCard, MistakeLensCard, coach cards, charts)
   theme/            # WaniKani color palette, subject-type colors, theme provider
 docs/               # Roadmap, PRD, research notes, NativeWind migration notes
 scripts/            # Release tooling (version-bump.sh)

@@ -13,12 +13,14 @@ Welcome to **読路** (Yomiji), your offline-first WaniKani study companion. Thi
 3. [Reviews](#reviews)
 4. [Lessons](#lessons)
 5. [Practice Modes](#practice-modes)
-6. [Subject Browsing & Search](#subject-browsing--search)
-7. [Subject Details](#subject-details)
-8. [Settings](#settings)
-9. [Notifications](#notifications)
-10. [Sync & Offline Behavior](#sync--offline-behavior)
-11. [Diagnostics](#diagnostics)
+6. [Weak-Spot Clinic](#weak-spot-clinic)
+7. [Subject Browsing & Search](#subject-browsing--search)
+8. [Subject Details](#subject-details)
+9. [Settings](#settings)
+10. [Study Coach (TinySwallow)](#study-coach-tinyswallow)
+11. [Notifications](#notifications)
+12. [Sync & Offline Behavior](#sync--offline-behavior)
+13. [Diagnostics](#diagnostics)
 
 ---
 
@@ -95,6 +97,14 @@ Tap any SRS stage to **browse all items** in that bucket.
 
 Shows up to 5 items you got wrong in the last 24 hours. Each item displays the subject character and its primary meaning. Tap **Practice** to start a recent-mistakes practice session.
 
+### Study Summary
+
+An on-demand **Study summary** card shows deterministic metrics (reviews due, lessons available, next-24h forecast, SRS counts). Tap the **sparkles** icon to optionally generate an AI overview when Study Coach is installed and enabled. Metrics always work without the model.
+
+### Weak-Spot Clinic Entry
+
+A **Weak-Spot Clinic** button opens a focused practice hub for recent mistakes, leeches, recurring task misses, and confusion pairs.
+
 ### Leeches
 
 Shows items with a high incorrect-to-correct ratio — items that keep tripping you up. The section displays:
@@ -151,6 +161,18 @@ After submitting an answer, you'll see one of these responses:
 | **Invalid characters** | The answer contained disallowed characters |
 
 When you answer incorrectly, the correct answer is displayed. After any vocabulary answer, a **Play Audio** button lets you hear the pronunciation; it is disabled while offline.
+
+### Mistake Lens
+
+After a scored miss, if local history shows a repeated same-task miss (within 14 days) or your wrong answer exactly matches another learned item, a **Mistake Lens** card may appear under the normal feedback. It is optional and never blocks **Continue**.
+
+- Shows verified accepted answers, miss counts, and short contrast bullets from local data.
+- Tap **sparkles** (when Study Coach is ready) for an optional AI explanation and memory cue.
+- **Practice pair** starts an unscored practice session for an unambiguous confusion pair.
+- **Helpful / Not helpful** stores local feedback only.
+- **Not now** dismisses the card for this moment.
+
+If cheats and Study Coach are enabled, the free-form **AI: Explain this mistake** action remains available for any wrong answer.
 
 ### Answer Checking Details
 
@@ -303,6 +325,25 @@ Practice modes let you review items **without submitting SRS progress** to WaniK
 - **Source:** Items that have reached the Burned SRS stage.
 - **Entry:** Dashboard → Shortcuts → **Burned Item Practice**.
 - Great for reviewing old material without un-burning items.
+
+### Pair Practice
+
+- **Source:** An explicit list of subject IDs from Mistake Lens or Weak-Spot Clinic.
+- **Entry:** Mistake Lens **Practice pair**, or Weak-Spot Clinic row **Practice**.
+- Uses the same review UI and never submits WaniKani SRS progress.
+
+---
+
+## Weak-Spot Clinic
+
+Open **Weak-Spot Clinic** from the dashboard. Sections include:
+
+1. **Recent mistakes** — last 24 hours, with practice deep link.
+2. **Leeches** — high incorrect/correct ratio items.
+3. **Recurring task misses** — subjects with ≥2 scored misses on the same meaning/reading task in the last 14 days (from local attempt history).
+4. **Confusion pairs** — subjects that shared the same wrong answer recently; practice opens an unscored pair session.
+
+All practice from this screen is unscored.
 
 ---
 
@@ -468,16 +509,49 @@ Notifications are automatically suppressed during **vacation mode** and when the
 
 A button to open the [Diagnostics](#diagnostics) screen.
 
+### Study Coach
+
+Download, enable, or delete the optional offline TinySwallow model. Generation is always on-demand — the model does not load just because the app or a review starts.
+
+### Learning History
+
+**Clear learning history** removes the local 90-day attempt log and intervention outcomes. Personalized Mistake Lens / clinic recurrence resets until new evidence is collected. This does **not** delete the Study Coach model file.
+
 ### Log Out
 
 Tap **Log Out and Clear Cache** to:
 1. Delete your API token from secure storage.
-2. Clear all local cached data.
+2. Clear all local cached data (including learning history and coach cache).
 3. Clear pending write queues.
 4. Cancel all scheduled notifications.
 5. Return to the login screen.
 
 > This is a destructive action. All local progress not yet synced will be lost.
+
+---
+
+## Study Coach (TinySwallow)
+
+Study Coach is an optional, fully offline assistant. It never grades answers, never changes SRS stages, and never blocks Continue or navigation.
+
+### What it can do
+
+- **Mistake Lens** wording after repeated misses or verified confusion pairs (on sparkles).
+- **AI Study Summary** on the dashboard (on sparkles).
+- Free-form subject helpers such as explain / mnemonic / examples from subject detail when enabled.
+
+### What it will not do
+
+- Grade or re-grade answers.
+- Approve synonyms or reorder queues.
+- Auto-generate on app start, dashboard focus, or review start.
+- Invent accepted readings/meanings; structured cards are validated against local facts.
+
+### Storage and privacy
+
+- Attempt history and intervention ratings stay on-device.
+- Full refresh keeps attempt history (orphans pruned if subjects disappear).
+- Logout clears learning history and coach response cache.
 
 ---
 
@@ -542,7 +616,10 @@ When offline, you can:
 - ✅ Complete lesson sessions (starts queued locally)
 - ✅ Edit notes and add synonyms from review cheats (queued locally)
 - ✅ View dashboard data (from last sync)
+- ✅ Use deterministic Mistake Lens / Weak-Spot Clinic / Study summary metrics from local history
+- ✅ Use Study Coach generation if the TinySwallow model is already installed
 - ❌ Stream vocabulary audio
+- ❌ Download the Study Coach model (requires network)
 - ❌ Sync new data from WaniKani
 
 ### Error Handling

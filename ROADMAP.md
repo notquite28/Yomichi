@@ -2,7 +2,7 @@
 
 This roadmap tracks 読路 development. `REACT_NATIVE_PORT_PRD.md` contains the original product requirements context.
 
-_Last audited against the current codebase: 2026-05-18._
+_Last audited against the current codebase: 2026-07-22._
 
 ## Guiding Principles
 
@@ -203,6 +203,23 @@ _Last audited against the current codebase: 2026-05-18._
 - [ ] Test WaniKani API rate limiting.
 - [ ] Decide whether existing iOS native database migration is required.
 
+## M11: Offline Study Coach (TinySwallow)
+
+- [x] Downloadable TinySwallow GGUF model, lazy load, streaming generation, cancellation, and text cache (`coach_cache`).
+- [x] Free-form subject coach actions (`explain`, `mnemonic`, `examples`, `unpack_context`, `why_wrong`) with sparkles icon convention.
+- [x] Local `review_attempts` history with session wiring for reviews, lessons, Anki, override, synonym, and ask-again-later.
+- [x] Retention prune (90-day attempts / 50k cap / 180-day interventions) and same-UTC-day maintenance gate.
+- [x] Deterministic Mistake Lens and Confusion Pair evidence queries with 24h cooldown.
+- [x] Subject-ID pair practice queue (`practiceSource: 'subjectIds'`) that never submits SRS progress.
+- [x] Mistake Lens card under wrong feedback (non-blocking Continue) with Helpful / Not helpful persistence.
+- [x] Structured coach validation for `mistake_lens` and `study_summary` (validate-before-cache).
+- [x] On-demand AI Study Summary dashboard card with deterministic metrics fallback.
+- [x] Weak-Spot Clinic screen (recent mistakes, leeches, recurring misses, confusion pairs → practice).
+- [x] Settings: Clear learning history (separate from model delete / logout).
+- [x] Lifecycle: prune learning history on foreground; unload loaded model on background when not generating.
+- [ ] Optional GGUF SHA-256 digest verification once a pinned digest is published in `modelCatalog`.
+- [ ] Post-intervention improvement analytics over longer windows (intervention outcomes already stored).
+
 ## Battery And Background Policy
 
 - [x] Avoid continuous background timers.
@@ -224,8 +241,9 @@ _Last audited against the current codebase: 2026-05-18._
 - Streaming audio playback and voice actor selection are implemented. Offline audio is not implemented.
 - Local notifications use a threshold + daily reminder model: a one-shot notification when the Nth future review becomes available, and an optional recurring daily reminder at a configured hour. Badge counts, vacation-mode suppression, and notification tap navigation to the review session are implemented. The custom scheme is reserved in app config, but deep-link route parsing and universal/app links are not implemented.
 - Custom font and font-size settings are not implemented.
-- Practice modes for recent mistakes, apprentice leeches, all leeches, and burned items are implemented with dashboard entry points. Katakana practice is not planned.
-- Settings exposes Appearance, Reviews, Lessons, Subject Details, Audio, Notifications, Diagnostics, and Log Out. Font settings UI is not yet exposed.
+- Practice modes for recent mistakes, apprentice leeches, all leeches, burned items, and subject-ID pair practice are implemented. Katakana practice is not planned.
+- Settings exposes Appearance, Reviews, Lessons, Subject Details, Audio, Notifications, Study Coach download, Learning History clear, Diagnostics, and Log Out. Font settings UI is not yet exposed.
+- Offline Study Coach (TinySwallow) ships Mistake Lens, confusion pairs, pair practice, AI Study Summary, and Weak-Spot Clinic from local attempt history. Coach never grades answers or writes SRS. GGUF checksum pinning and longer-term intervention analytics remain open.
 
 ## Feature Reference
 
