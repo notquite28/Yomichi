@@ -4,6 +4,11 @@ jest.mock("expo-constants", () => ({
 	__esModule: true,
 }));
 
+jest.mock("../db/errorLog", () => ({
+	logErrorBestEffort: jest.fn(),
+}));
+
+import { logErrorBestEffort } from "../db/errorLog";
 import { checkForUpdate, compareSemver } from "./updateService";
 
 type FetchLike = typeof fetch;
@@ -127,6 +132,22 @@ describe("checkForUpdate", () => {
 		) as unknown as FetchLike;
 		const info = await checkForUpdate({ fetcher, currentVersion: "0.4.12" });
 		expect(info).toBeNull();
+	});
+
+	it("returns null without logging when error coercion throws", async () => {
+		const uncoercible = {
+			toString(): string {
+				throw new Error("coercion failed");
+			},
+		};
+		const fetcher = jest.fn(() =>
+			Promise.reject(uncoercible),
+		) as unknown as FetchLike;
+
+		await expect(
+			checkForUpdate({ fetcher, currentVersion: "0.4.12" }),
+		).resolves.toBeNull();
+		expect(logErrorBestEffort).not.toHaveBeenCalled();
 	});
 
 	it("returns null when the payload is malformed", async () => {

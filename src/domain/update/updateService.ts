@@ -1,4 +1,5 @@
 import Constants from 'expo-constants';
+import { logErrorBestEffort } from '../db/errorLog';
 
 /**
  * Update availability check against public GitHub Releases.
@@ -134,7 +135,25 @@ export async function checkForUpdate(options: CheckForUpdateOptions = {}): Promi
     }
 
     return { latestVersion, currentVersion, htmlUrl: htmlUrl || downloadUrl, downloadUrl };
-  } catch {
+  } catch (error) {
+    // Offline/network is expected; only log unexpected parse/runtime failures.
+    let message: string;
+    try {
+      message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+    } catch {
+      return null;
+    }
+    const isExpectedNetwork =
+      message.includes('network') ||
+      message.includes('failed to fetch') ||
+      message.includes('offline') ||
+      message.includes('timeout') ||
+      message.includes('timed out') ||
+      message.includes('aborted') ||
+      message.includes('unreachable');
+    if (!isExpectedNetwork) {
+      void logErrorBestEffort('warn', error, 'updateService.checkForUpdate');
+    }
     return null;
   }
 }

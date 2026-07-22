@@ -21,7 +21,7 @@ import {
   ReviewForecastHour,
 } from '../domain/dashboard/dashboardRepository';
 import { openAppDatabase } from '../domain/db/database';
-import { describeSyncError, logSyncError } from '../domain/db/errorLog';
+import { describeSyncError, logErrorBestEffort, logSyncError } from '../domain/db/errorLog';
 
 import { isSyncAuthError, runIncrementalSync, SyncProgress } from '../domain/sync/syncService';
 import { useSyncStore } from '../domain/sync/syncStore';
@@ -93,7 +93,9 @@ export function DashboardScreen({ apiToken, navigation, onAuthError }: Props) {
       if (isMounted && dismissed !== info.latestVersion) {
         setUpdateInfo(info);
       }
-    })().catch(() => {});
+    })().catch((error) => {
+      void logErrorBestEffort('warn', error, 'DashboardScreen.checkForUpdate');
+    });
     return () => {
       isMounted = false;
     };
@@ -184,7 +186,9 @@ export function DashboardScreen({ apiToken, navigation, onAuthError }: Props) {
       const currentHour = new Date().getHours();
       if (currentHour !== lastHour) {
         lastHour = currentHour;
-        refreshSummary().catch(() => {});
+        refreshSummary().catch((error) => {
+          void logErrorBestEffort('warn', error, 'DashboardScreen.hourlyRefreshSummary');
+        });
       }
     }, 60_000);
 

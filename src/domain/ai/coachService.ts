@@ -1,4 +1,5 @@
 import { openAppDatabase } from '../db/database';
+import { logErrorBestEffort } from '../db/errorLog';
 import { COACH_MAX_TOKENS, TINYSWALLOW_MODEL } from './modelCatalog';
 import {
   cancelModelDownload as cancelDownload,
@@ -174,14 +175,18 @@ export async function cancelModelDownload(): Promise<void> {
 }
 
 export async function deleteModel(): Promise<void> {
-  await cancelDownload().catch(() => {});
-  await releaseLlama().catch(() => {});
+  await cancelDownload().catch((error) => {
+    void logErrorBestEffort('warn', error, 'coachService.deleteModel.cancelDownload');
+  });
+  await releaseLlama().catch((error) => {
+    void logErrorBestEffort('warn', error, 'coachService.deleteModel.releaseLlama');
+  });
   await deleteModelFiles();
   try {
     const db = await openAppDatabase();
     await clearCoachCache(db);
-  } catch {
-    // Cache clear is best-effort if DB is unavailable.
+  } catch (error) {
+    void logErrorBestEffort('warn', error, 'coachService.deleteModel.clearCache');
   }
   setStatus('not_installed');
   lastError = null;
@@ -215,7 +220,9 @@ export async function ensureModelLoaded(): Promise<void> {
 
 export async function releaseModel(): Promise<void> {
   generationToken += 1;
-  await stopGeneration().catch(() => {});
+  await stopGeneration().catch((error) => {
+    void logErrorBestEffort('warn', error, 'coachService.releaseModel.stopGeneration');
+  });
   await releaseLlama();
   await refreshInstalledStatus();
 }
@@ -261,15 +268,17 @@ export async function runCoachAction(input: CoachGenerationInput): Promise<Coach
         input.onToken?.(cached);
         return { text: cached, fromCache: true };
       }
-    } catch {
-      // Cache miss path continues to generation.
+    } catch (error) {
+      void logErrorBestEffort('warn', error, 'coachService.runCoachAction.cacheRead');
     }
   }
 
   // Single-flight: cancel any prior generation.
   generationToken += 1;
   const myToken = generationToken;
-  await stopGeneration().catch(() => {});
+  await stopGeneration().catch((error) => {
+    void logErrorBestEffort('warn', error, 'coachService.runCoachAction.stopPrior');
+  });
 
   setStatus('generating');
   lastError = null;
@@ -310,8 +319,8 @@ export async function runCoachAction(input: CoachGenerationInput): Promise<Coach
         response: trimmed,
         createdAt: new Date().toISOString(),
       });
-    } catch {
-      // Non-fatal: generation still succeeds without cache write.
+    } catch (error) {
+      void logErrorBestEffort('warn', error, 'coachService.runCoachAction.cacheWrite');
     }
 
     setStatus('loaded');

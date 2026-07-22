@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { logErrorBestEffort } from '../db/errorLog';
 import { AppSettings, defaultSettings, loadSettings, saveSettings } from './settings';
 
 export type SettingsState = AppSettings & {
@@ -33,7 +34,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         }
         dirtyKeys.clear();
         set({ ...merged, _hydrated: true });
-      } catch {
+      } catch (error) {
+        void logErrorBestEffort('error', error, 'settingsStore.hydrate');
         // On error, stay with defaults (plus any dirty updates) but unblock the app
         dirtyKeys.clear();
         set({ _hydrated: true });
@@ -51,6 +53,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }
     set({ [key]: value } as Partial<SettingsState>);
     // Fire-and-forget persistence; write failures are non-critical
-    saveSettings({ [key]: value }).catch(() => {});
+    saveSettings({ [key]: value }).catch((error) => {
+      void logErrorBestEffort('error', error, 'settingsStore.updateSetting.saveSettings');
+    });
   },
 }));

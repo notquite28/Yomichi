@@ -1,6 +1,8 @@
 import NetInfo from '@react-native-community/netinfo';
 import * as FileSystem from 'expo-file-system/legacy';
 
+import { logErrorBestEffort } from '../db/errorLog';
+
 import { TINYSWALLOW_MODEL } from './modelCatalog';
 import {
   deleteModelFiles,
@@ -114,8 +116,8 @@ export async function startModelDownload(opts?: {
       if (!/cancel/i.test(message)) {
         try {
           await deleteModelFiles();
-        } catch {
-          // ignore
+        } catch (error) {
+          void logErrorBestEffort('warn', error, 'modelDownloader.cleanupAfterFailure');
         }
       }
       throw error instanceof Error ? error : new Error(message);
@@ -135,14 +137,14 @@ export async function cancelModelDownload(): Promise<void> {
   if (current) {
     try {
       await current.cancelAsync();
-    } catch {
-      // Best-effort cancel.
+    } catch (error) {
+      void logErrorBestEffort('warn', error, 'modelDownloader.cancelAsync');
     }
   }
   try {
     await deleteModelFiles();
-  } catch {
-    // ignore
+  } catch (error) {
+    void logErrorBestEffort('warn', error, 'modelDownloader.cancelCleanup');
   }
   emitProgress(null);
   // Let the in-flight promise settle; it will throw/cancel.

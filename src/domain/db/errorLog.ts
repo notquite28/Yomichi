@@ -1,5 +1,5 @@
 import { WaniKaniApiError } from '../api/WaniKaniClient';
-import { AppDatabase, runExclusive } from './database';
+import { AppDatabase, openAppDatabase, runExclusive } from './database';
 
 export type ErrorLogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -133,6 +133,29 @@ export async function logError(db: AppDatabase, level: ErrorLogLevel, message: s
       new Date().toISOString(),
     ),
   );
+}
+
+/**
+ * Best-effort diagnostics write: opens the app DB and inserts an error_log row.
+ * Never throws — logging must not break callers of cleanup/non-critical paths.
+ */
+export async function logErrorBestEffort(
+  level: ErrorLogLevel,
+  error: unknown,
+  context: string,
+): Promise<void> {
+  try {
+    let message = 'Unknown error';
+    try {
+      message = error instanceof Error ? error.message : String(error);
+    } catch {
+      // Keep the fallback when even inspecting/coercing the thrown value fails.
+    }
+    const db = await openAppDatabase();
+    await logError(db, level, message, context);
+  } catch {
+    // Never let diagnostics logging break the caller.
+  }
 }
 
 export async function logSyncError(db: AppDatabase, error: unknown, context: string): Promise<void> {

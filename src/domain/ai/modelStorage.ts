@@ -1,5 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 
+import { logErrorBestEffort } from '../db/errorLog';
+
 import { TINYSWALLOW_MODEL } from './modelCatalog';
 
 export function getModelsDirectoryUri(): string {
@@ -51,7 +53,8 @@ export async function getInstalledModelInfo(
       uri,
       complete: size >= minBytes,
     };
-  } catch {
+  } catch (error) {
+    void logErrorBestEffort('warn', error, 'modelStorage.getInstalledModelInfo');
     return { exists: false, size: 0, uri, complete: false };
   }
 }
@@ -61,8 +64,8 @@ export async function deleteModelFiles(fileName: string = TINYSWALLOW_MODEL.file
   for (const uri of targets) {
     try {
       await FileSystem.deleteAsync(uri, { idempotent: true });
-    } catch {
-      // Best-effort cleanup.
+    } catch (error) {
+      void logErrorBestEffort('warn', error, `modelStorage.deleteModelFiles:${uri}`);
     }
   }
 }

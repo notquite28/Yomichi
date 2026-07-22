@@ -8,6 +8,7 @@ import { correctAnswerText, feedbackTitle } from '../domain/answers/feedbackMess
 import { convertRomajiToKanaInput } from '../domain/answers/kanaInput';
 import { playVocabularyAudio, stopVocabularyAudio } from '../domain/audio/vocabularyAudio';
 import { openAppDatabase } from '../domain/db/database';
+import { logErrorBestEffort } from '../domain/db/errorLog';
 import { AppSettings } from '../domain/settings/settings';
 import { useSettingsStore } from '../domain/settings/settingsStore';
 import {
@@ -184,7 +185,9 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
 
   useEffect(() => () => {
     cancelGeneration();
-    stopVocabularyAudio().catch(() => {});
+    stopVocabularyAudio().catch((error) => {
+      void logErrorBestEffort('debug', error, 'ReviewSessionScreen.unmount.stopVocabularyAudio');
+    });
   }, []);
 
   useEffect(() => () => {
@@ -232,7 +235,8 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
         if (isMounted) {
           setSubjectDetailData({ componentSubjects: compMap, amalgamationSubjects: amalMap, studyMaterial });
         }
-      } catch {
+      } catch (error) {
+        void logErrorBestEffort('warn', error, 'ReviewSessionScreen.loadSubjectDetailData');
         if (isMounted) {
           setSubjectDetailData(null);
         }
@@ -301,7 +305,8 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
         }
         audioTimerRef.current = setTimeout(() => setAudioMessage(null), 3000);
       }
-    } catch {
+    } catch (error) {
+      void logErrorBestEffort('warn', error, 'ReviewSessionScreen.playAudio');
       setAudioMessage('Unable to play audio');
       if (audioTimerRef.current) {
         clearTimeout(audioTimerRef.current);

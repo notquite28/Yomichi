@@ -9,7 +9,7 @@ import {
 
 import { WaniKaniClient } from "../domain/api/WaniKaniClient";
 import { getLastSyncTime, openAppDatabase } from "../domain/db/database";
-import { describeSyncError, logSyncError } from "../domain/db/errorLog";
+import { describeSyncError, logErrorBestEffort, logSyncError } from "../domain/db/errorLog";
 import {
 	ensureReviewNotificationChannel,
 	getNotificationPermissionStatus,
@@ -159,9 +159,12 @@ export function AppNavigator() {
 		// when offline; notification scheduling itself needs zero network.
 		try {
 			await rescheduleReviewNotifications();
-		} catch {
-			// Notification scheduling is best-effort; failures are non-critical
-			// and should not disrupt the user experience.
+		} catch (error) {
+			void logErrorBestEffort(
+				"warn",
+				error,
+				"AppNavigator.syncOnForeground.rescheduleNotifications",
+			);
 		}
 	}, [apiToken, beginLifecycleSync, handleSyncError]);
 
@@ -224,8 +227,12 @@ export function AppNavigator() {
 				if (status === "undetermined") {
 					await requestNotificationPermissions();
 				}
-			} catch {
-				// Best-effort — don't disrupt the user.
+			} catch (error) {
+				void logErrorBestEffort(
+					"info",
+					error,
+					"AppNavigator.requestNotificationPermissions",
+				);
 			}
 		})();
 	}, [apiToken]);
@@ -257,7 +264,13 @@ export function AppNavigator() {
 				// Flush pending writes. Reschedule notifications independently so
 				// they still update from local data even when the network is offline.
 				void syncOnBackground();
-				void rescheduleReviewNotifications().catch(() => {});
+				void rescheduleReviewNotifications().catch((error) => {
+					void logErrorBestEffort(
+						"warn",
+						error,
+						"AppNavigator.background.rescheduleNotifications",
+					);
+				});
 			}
 		});
 

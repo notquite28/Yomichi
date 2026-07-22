@@ -1,5 +1,17 @@
+import type * as DatabaseModule from './database';
+
+jest.mock('./database', () => {
+  const actual = jest.requireActual('./database') as typeof DatabaseModule;
+  return {
+    ...actual,
+    openAppDatabase: jest.fn(),
+  };
+});
+
 import { WaniKaniApiError } from '../api/WaniKaniClient';
-import { classifySyncError, describeSyncError, sanitize, SyncErrorCategory } from './errorLog';
+import { createTestDb } from '../../test/sqliteShim';
+import { applyMigrations, openAppDatabase } from './database';
+import { classifySyncError, describeSyncError, logErrorBestEffort, sanitize, SyncErrorCategory } from './errorLog';
 
 describe('sanitize', () => {
   test('redacts Token token= patterns', () => {
@@ -204,5 +216,53 @@ describe('describeSyncError', () => {
     expect(info.category).toBe('rate-limit');
     expect(info.message).toBe('Too many requests.');
     expect(info.isRetryable).toBe(false);
+  });
+});
+
+describe('logErrorBestEffort', () => {
+  afterEach(() => {
+    jest.mocked(openAppDatabase).mockReset();
+  });
+
+  test('writes sanitized entry when DB is available', async () => {
+    const db = createTestDb();
+    await applyMigrations(db);
+    jest.mocked(openAppDatabase).mockResolvedValue(db);
+
+    await logErrorBestEffort('warn', new Error('disk full'), 'modelStorage.deleteModelFiles');
+
+    const rows = await db.getAllAsync<{ level: string; message: string; context: string | null }>(
+      'SELECT level, message, context FROM error_log',
+    );
+    expect(rows).toEqual([
+      {
+        level: 'warn',
+        message: 'disk full',
+        context: 'modelStorage.deleteModelFiles',
+      },
+    ]);
+    await db.closeAsync();
+  });
+
+  test('uses a fallback when error coercion throws', async () => {
+    const db = createTestDb();
+    await applyMigrations(db);
+    jest.mocked(openAppDatabase).mockResolvedValue(db);
+    const uncoercible = {
+      toString(): string {
+        throw new Error('coercion failed');
+      },
+    };
+
+    await expect(logErrorBestEffort('warn', uncoercible, 'test.context')).resolves.toBeUndefined();
+
+    const row = await db.getFirstAsync<{ message: string }>('SELECT message FROM error_log');
+    expect(row?.message).toBe('Unknown error');
+    await db.closeAsync();
+  });
+
+  test('swallows open/write failures', async () => {
+    jest.mocked(openAppDatabase).mockRejectedValue(new Error('db locked'));
+    await expect(logErrorBestEffort('error', 'boom', 'test.context')).resolves.toBeUndefined();
   });
 });

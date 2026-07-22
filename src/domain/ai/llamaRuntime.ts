@@ -1,5 +1,7 @@
 import { Platform } from 'react-native';
 
+import { logErrorBestEffort } from '../db/errorLog';
+
 import {
   COACH_STOP_TOKENS,
   COACH_TEMPERATURE,
@@ -103,8 +105,8 @@ export async function releaseLlama(): Promise<void> {
   if (generating && context) {
     try {
       await context.stopCompletion();
-    } catch {
-      // ignore
+    } catch (error) {
+      void logErrorBestEffort('warn', error, 'llamaRuntime.releaseLlama.stopCompletion');
     }
     generating = false;
   }
@@ -115,8 +117,8 @@ export async function releaseLlama(): Promise<void> {
   if (current) {
     try {
       await current.release();
-    } catch {
-      // Best-effort release.
+    } catch (error) {
+      void logErrorBestEffort('warn', error, 'llamaRuntime.releaseLlama.release');
     }
   }
 }
@@ -127,8 +129,8 @@ export async function stopGeneration(): Promise<void> {
   }
   try {
     await context.stopCompletion();
-  } catch {
-    // ignore
+  } catch (error) {
+    void logErrorBestEffort('warn', error, 'llamaRuntime.stopGeneration');
   }
 }
 
@@ -142,8 +144,8 @@ export async function generateChatCompletion(input: {
   if (generating) {
     try {
       await ctx.stopCompletion();
-    } catch {
-      // ignore
+    } catch (error) {
+      void logErrorBestEffort('warn', error, 'llamaRuntime.generateChatCompletion.stopPrior');
     }
   }
 
@@ -153,8 +155,8 @@ export async function generateChatCompletion(input: {
     // Clear prior conversation KV so subject prompts do not bleed into each other.
     try {
       await ctx.clearCache(true);
-    } catch {
-      // Older builds may not support clearCache; ignore.
+    } catch (error) {
+      void logErrorBestEffort('debug', error, 'llamaRuntime.clearCache');
     }
 
     const result = await ctx.completion(

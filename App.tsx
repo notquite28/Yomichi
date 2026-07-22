@@ -18,6 +18,7 @@ import {
 	getLastNotificationResponse,
 	clearLastNotificationResponse,
 } from "./src/domain/notifications/expoNotifications";
+import { logErrorBestEffort } from "./src/domain/db/errorLog";
 import { getApiToken } from "./src/domain/storage/secureToken";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 import type { RootStackParamList } from "./src/navigation/types";
@@ -102,7 +103,10 @@ function NotificationTapHandler() {
 
 				// Auth gate is async: wait until SecureStore has been read and a token
 				// exists before pushing ReviewSession onto the authenticated stack.
-				const token = await getApiToken().catch(() => null);
+				const token = await getApiToken().catch((error) => {
+					void logErrorBestEffort("warn", error, "App.NotificationTapHandler.getApiToken");
+					return null;
+				});
 				if (cancelled) return;
 				if (!token) {
 					if (++attempts < 60) {

@@ -18,6 +18,7 @@ import {
 	type VoiceActorOption,
 } from "../domain/audio/vocabularyAudio";
 import { openAppDatabase, resetLocalData } from "../domain/db/database";
+import { logErrorBestEffort } from "../domain/db/errorLog";
 import {
 	clearReviewNotifications,
 	getNotificationPermissionStatus,
@@ -88,7 +89,9 @@ export function SettingsScreen({ navigation, onLoggedOut }: Props) {
 				return;
 			}
 			setVoiceActors(loadedVoiceActors);
-		})().catch(() => {});
+		})().catch((error) => {
+			void logErrorBestEffort("warn", error, "SettingsScreen.loadVoiceActors");
+		});
 		return () => {
 			isMounted = false;
 		};
@@ -166,7 +169,13 @@ export function SettingsScreen({ navigation, onLoggedOut }: Props) {
 				await rescheduleReviewNotifications();
 			} catch (caught) {
 				updateSetting(key, previousValue);
-				await rescheduleReviewNotifications().catch(() => {});
+				await rescheduleReviewNotifications().catch((error) => {
+					void logErrorBestEffort(
+						"warn",
+						error,
+						"SettingsScreen.updateNotificationSetting.rollbackReschedule",
+					);
+				});
 				Alert.alert(
 					"Notification Update Failed",
 					`Your notification setting was not changed because scheduling failed. ${caught instanceof Error ? caught.message : String(caught)}`,
