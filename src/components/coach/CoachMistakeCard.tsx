@@ -1,6 +1,8 @@
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
 import { cancelGeneration } from '../../domain/ai/coachService';
+import type { SubjectAnswerData } from '../../domain/answers/answerChecker';
+import { MnemonicText } from '../SubjectDetailsContent';
 import { useAppTheme } from '../../theme/AppThemeProvider';
 
 type Props = {
@@ -8,9 +10,10 @@ type Props = {
   isRunning: boolean;
   error: string | null;
   onDismiss?: () => void;
+  subjectLookup?: Map<number, SubjectAnswerData>;
 };
 
-export function CoachMistakeCard({ text, isRunning, error, onDismiss }: Props) {
+export function CoachMistakeCard({ text, isRunning, error, onDismiss, subjectLookup }: Props) {
   const { colors } = useAppTheme();
 
   return (
@@ -50,7 +53,11 @@ export function CoachMistakeCard({ text, isRunning, error, onDismiss }: Props) {
       ) : null}
 
       {text ? (
-        <Text className="text-[15px] leading-[21px] font-heavy text-text dark:text-text-dark">{text}</Text>
+        <MnemonicText
+          text={text}
+          subjectLookup={subjectLookup}
+          className="text-[15px] leading-[21px] font-heavy text-text dark:text-text-dark"
+        />
       ) : null}
     </View>
   );

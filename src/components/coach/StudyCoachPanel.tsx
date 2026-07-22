@@ -2,10 +2,11 @@ import { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
 
 import { cancelGeneration, runCoachAction } from '../../domain/ai/coachService';
+import { stripMnemonicMarkup } from '../../domain/ai/mnemonicMarkup';
 import { useCoachStore } from '../../domain/ai/coachStore';
 import type { CoachAction, CoachStudyMaterial } from '../../domain/ai/types';
 import type { SubjectAnswerData } from '../../domain/answers/answerChecker';
-import { DetailSection } from '../SubjectDetailsContent';
+import { DetailSection, MnemonicText } from '../SubjectDetailsContent';
 import { useAppTheme } from '../../theme/AppThemeProvider';
 
 type Props = {
@@ -49,6 +50,15 @@ export function StudyCoachPanel({
     ];
     return defs.filter((a) => !a.hidden);
   }, [subject.contextSentences]);
+
+  const componentLookup = useMemo(() => {
+    const map = new Map<number, SubjectAnswerData>();
+    for (const c of componentSubjects ?? []) {
+      if (c.id != null) map.set(c.id, c);
+    }
+    if (subject.id != null) map.set(subject.id, subject);
+    return map;
+  }, [componentSubjects, subject]);
 
   const busy = isRunning || status === 'loading' || status === 'generating';
   const modelUsable =
@@ -99,7 +109,7 @@ export function StudyCoachPanel({
   };
 
   const confirmSave = (field: 'meaningNote' | 'readingNote') => {
-    const draft = text.trim();
+    const draft = stripMnemonicMarkup(text).trim();
     if (!draft) {
       return;
     }
@@ -188,9 +198,11 @@ export function StudyCoachPanel({
 
       {text ? (
         <View className="mt-1 gap-2">
-          <Text className="text-[15px] leading-[21px] font-heavy text-text dark:text-text-dark">
-            {text}
-          </Text>
+          <MnemonicText
+            text={text}
+            subjectLookup={componentLookup}
+            className="text-[15px] leading-[21px] font-heavy text-text dark:text-text-dark"
+          />
           <View className="flex-row flex-wrap gap-2 items-center">
             {fromCache ? (
               <Text className="text-[12px] font-bold text-text-muted dark:text-text-muted-dark">

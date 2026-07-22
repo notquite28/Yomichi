@@ -437,6 +437,8 @@ export function ComponentChipContent({ subject, color }: {
   return <Text className="text-[16px] font-black" style={{ color }}>{subject.japanese || subject.type}</Text>;
 }
 
+const EMPTY_SUBJECT_LOOKUP = new Map<number, SubjectAnswerData>();
+
 export type MnemonicToken =
   | { type: 'text'; text: string }
   | { type: 'tag'; tag: string; text: string }
@@ -478,13 +480,19 @@ const tagColors: Record<string, string> = {
   meaning: '#ff00aa',
 };
 
-export function MnemonicText({ text, subjectLookup }: {
+export function MnemonicText({
+  text,
+  subjectLookup,
+  className = 'text-[16px] leading-[22px] font-heavy text-text dark:text-text-dark',
+}: {
   text: string;
-  subjectLookup: Map<number, SubjectAnswerData>;
+  subjectLookup?: Map<number, SubjectAnswerData>;
+  className?: string;
 }) {
   const tokens = parseMnemonic(text);
+  const lookup = subjectLookup ?? EMPTY_SUBJECT_LOOKUP;
   return (
-    <Text className="text-[16px] leading-[22px] font-heavy text-text dark:text-text-dark">
+    <Text className={className}>
       {tokens.map((token, idx) => {
         if (token.type === 'tag') {
           const tag = token.tag ?? '';
@@ -497,7 +505,7 @@ export function MnemonicText({ text, subjectLookup }: {
         }
         if (token.type === 'curly') {
           const content = token.text;
-          const subj = [...subjectLookup.values()].find(
+          const subj = [...lookup.values()].find(
             (s) => s.meanings.some((m) => m.meaning.toLowerCase() === content.toLowerCase()) || s.japanese === content,
           );
           if (subj?.japanese) {

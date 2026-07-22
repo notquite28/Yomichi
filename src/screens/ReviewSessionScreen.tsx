@@ -246,6 +246,14 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
   const taskType = session?.currentTaskType ?? null;
   const displayItem = feedback?.item ?? currentItem;
   const displayTaskType = feedback?.taskType ?? taskType;
+  const mistakeSubjectLookup = useMemo(() => {
+    const lookup = new Map(subjectDetailData?.componentSubjects);
+    const reviewedSubject = feedback?.item.subject;
+    if (reviewedSubject?.id != null) {
+      lookup.set(reviewedSubject.id, reviewedSubject);
+    }
+    return lookup.size > 0 ? lookup : undefined;
+  }, [feedback?.item.subject, subjectDetailData]);
   const subjectColor = displayItem
     ? colorForSubjectType(colors, displayItem.subjectType)
     : colors.vocabulary;
@@ -770,18 +778,12 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
         </Text>
       ) : null}
 
-      {session?.wrappingUp ? (
-        <Text className="text-text-muted dark:text-text-muted-dark text-center text-[14px] leading-5 font-bold">
-          Wrap-up mode: finish the current review batch. No new reviews will be added.
-        </Text>
-      ) : null}
-
-
       {(mistakeCoachText || mistakeCoachRunning || mistakeCoachError) && feedback && !feedback.correct ? (
         <CoachMistakeCard
           text={mistakeCoachText}
           isRunning={mistakeCoachRunning}
           error={mistakeCoachError}
+          subjectLookup={mistakeSubjectLookup}
           onDismiss={() => {
             cancelGeneration();
             setMistakeCoachText('');
