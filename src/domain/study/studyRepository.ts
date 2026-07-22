@@ -9,7 +9,7 @@ import {
   parseSubjectPayload,
 } from '../db/subjectRepository';
 import { StudyMaterialPayload } from '../api/types';
-import { AppSettings, SubjectType } from '../settings/settings';
+import { AppSettings, BurnedPracticeOrder, SubjectType } from '../settings/settings';
 
 type AssignmentResource = {
   id: number;
@@ -167,7 +167,58 @@ export async function getLeechPracticeQueue(db: AppDatabase, options?: { apprent
     .map(({ item }) => item);
 }
 
-export async function getBurnedItemPracticeQueue(db: AppDatabase, limit = 100) {
+export type BurnedPracticeOptions = {
+  order: BurnedPracticeOrder;
+  limit: number;
+  includeRadicals: boolean;
+  includeKanji: boolean;
+  includeVocabulary: boolean;
+};
+
+export async function getBurnedItemPracticeQueue(
+  db: AppDatabase,
+  options: BurnedPracticeOptions,
+): Promise<StudyQueueItem[]> {
+  const types: string[] = [];
+  if (options.includeRadicals) types.push('radical');
+  if (options.includeKanji) types.push('kanji');
+  if (options.includeVocabulary) types.push('vocabulary');
+  if (types.length === 0) return [];
+
+  const limit = Math.min(200, Math.max(1, Math.floor(options.limit)));
+  const typePlaceholders = types.map(() => '?').join(',');
+
+  if (options.order === 'random') {
+    const idRows = await db.getAllAsync<{ assignment_id: number }>(
+      `SELECT a.id AS assignment_id
+       FROM assignments a
+       WHERE a.srs_stage = 9
+         AND a.subject_type IN (${typePlaceholders})
+       ORDER BY a.level ASC, a.subject_type ASC, a.subject_id ASC`,
+      ...types,
+    );
+    if (idRows.length === 0) return [];
+
+    const assignmentIds = idRows.map((row) => row.assignment_id);
+    shuffleArray(assignmentIds);
+    const selectedIds = assignmentIds.slice(0, limit);
+    return loadStudyQueueItemsByAssignmentIds(db, selectedIds);
+  }
+
+  let orderClause: string;
+  switch (options.order) {
+    case 'oldestBurned':
+      orderClause = 'ORDER BY a.burned_at IS NULL, a.burned_at ASC, a.subject_id ASC';
+      break;
+    case 'newestBurned':
+      orderClause = 'ORDER BY a.burned_at IS NULL, a.burned_at DESC, a.subject_id DESC';
+      break;
+    case 'levelAscending':
+    default:
+      orderClause = 'ORDER BY a.level ASC, a.subject_type ASC, a.subject_id ASC';
+      break;
+  }
+
   const rows = await db.getAllAsync<StudyQueueRow>(
     `SELECT
        a.id AS assignment_id,
@@ -183,13 +234,58 @@ export async function getBurnedItemPracticeQueue(db: AppDatabase, limit = 100) {
      INNER JOIN subjects s ON s.id = a.subject_id
      LEFT JOIN study_materials sm ON sm.subject_id = a.subject_id
      WHERE a.srs_stage = 9
-     ORDER BY a.level ASC, a.subject_type ASC, a.subject_id ASC
+       AND a.subject_type IN (${typePlaceholders})
+     ${orderClause}
      LIMIT ?`,
+    ...types,
     limit,
   );
 
   return rows.map(rowToStudyQueueItem).filter(hasPrompt);
 }
+
+async function loadStudyQueueItemsByAssignmentIds(
+  db: AppDatabase,
+  assignmentIds: number[],
+): Promise<StudyQueueItem[]> {
+  if (assignmentIds.length === 0) return [];
+
+  const byId = new Map<number, StudyQueueItem>();
+  const CHUNK_SIZE = 500;
+  for (let offset = 0; offset < assignmentIds.length; offset += CHUNK_SIZE) {
+    const chunk = assignmentIds.slice(offset, offset + CHUNK_SIZE);
+    const placeholders = chunk.map(() => '?').join(',');
+    const rows = await db.getAllAsync<StudyQueueRow>(
+      `SELECT
+         a.id AS assignment_id,
+         a.subject_id,
+         a.subject_type,
+         a.level,
+         a.srs_stage,
+         a.available_at,
+         a.payload AS assignment_payload,
+         s.payload AS subject_payload,
+         sm.payload AS study_material_payload
+       FROM assignments a
+       INNER JOIN subjects s ON s.id = a.subject_id
+       LEFT JOIN study_materials sm ON sm.subject_id = a.subject_id
+       WHERE a.id IN (${placeholders})`,
+      ...chunk,
+    );
+
+    for (const row of rows) {
+      const item = rowToStudyQueueItem(row);
+      if (hasPrompt(item)) {
+        byId.set(row.assignment_id, item);
+      }
+    }
+  }
+
+  return assignmentIds
+    .map((id) => byId.get(id))
+    .filter((item): item is StudyQueueItem => item != null);
+}
+
 
 export async function getLessonQueue(db: AppDatabase, settings: AppSettings, limit = 100) {
   const rows = await db.getAllAsync<StudyQueueRow>(

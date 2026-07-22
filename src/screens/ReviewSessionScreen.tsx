@@ -54,7 +54,13 @@ function getQueueForSource(db: Awaited<ReturnType<typeof openAppDatabase>>, sour
     return getLeechPracticeQueue(db, { threshold: settings.leechThreshold });
   }
   if (source === 'burnedItems') {
-    return getBurnedItemPracticeQueue(db);
+    return getBurnedItemPracticeQueue(db, {
+      order: settings.burnedPracticeOrder,
+      limit: settings.burnedPracticeLimit,
+      includeRadicals: settings.burnedPracticeIncludeRadicals,
+      includeKanji: settings.burnedPracticeIncludeKanji,
+      includeVocabulary: settings.burnedPracticeIncludeVocabulary,
+    });
   }
   return getReviewQueue(db);
 }
@@ -109,14 +115,15 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
       reviewOrder: appSettings.reviewOrder,
       reviewBatchSize: appSettings.reviewBatchSize,
       reviewItemsLimit: appSettings.reviewItemsLimit,
-      reviewItemsLimitEnabled: appSettings.reviewItemsLimitEnabled,
+      reviewItemsLimitEnabled:
+        practiceSource === 'burnedItems' ? false : appSettings.reviewItemsLimitEnabled,
       groupMeaningReading: appSettings.groupMeaningReading,
       meaningFirst: appSettings.meaningFirst,
       minimizeReviewPenalty: appSettings.minimizeReviewPenalty,
       enableCheats: appSettings.enableCheats,
       ankiMode: appSettings.ankiMode,
     }),
-    [appSettings],
+    [appSettings, practiceSource],
   );
 
   const ankiMode = appSettings.ankiMode;

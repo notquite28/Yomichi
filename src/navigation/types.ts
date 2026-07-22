@@ -10,5 +10,6 @@ export type RootStackParamList = {
   SubjectCatalog: { level: number };
   SubjectSearch: undefined;
   SubjectBrowse: { title: string; srsMin?: number; srsMax?: number; excluded?: boolean; remaining?: boolean };
+  BurnedItems: undefined;
   SubjectDetail: { subjectId: number };
 };

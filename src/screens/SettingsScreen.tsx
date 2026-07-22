@@ -25,6 +25,7 @@ import {
 } from "../domain/notifications";
 import {
 	type AppSettings,
+	type BurnedPracticeOrder,
 	type ReviewOrder,
 	type SubjectType,
 } from "../domain/settings/settings";
@@ -47,6 +48,13 @@ const REVIEW_ORDER_LABELS: Record<ReviewOrder, string> = {
 	newestAvailableFirst: "Newest Available",
 	oldestAvailableFirst: "Oldest Available",
 	longestRelativeWait: "Longest Wait",
+};
+
+const BURNED_PRACTICE_ORDER_LABELS: Record<BurnedPracticeOrder, string> = {
+	oldestBurned: "Oldest burned",
+	newestBurned: "Newest burned",
+	random: "Random",
+	levelAscending: "Level",
 };
 
 const LESSON_ORDER_LABELS: Record<SubjectType, string> = {
@@ -352,6 +360,66 @@ export function SettingsScreen({ navigation, onLoggedOut }: Props) {
 						min={1}
 						max={10}
 						onChange={(v) => updateSetting("leechThreshold", v)}
+					/>
+
+					<Text className="text-xs font-black tracking-ultra uppercase text-text-muted dark:text-text-muted-dark mt-1.5 pt-[10px] border-t border-border dark:border-border-dark">Burned Practice</Text>
+
+					<View className="flex-row flex-wrap gap-2">
+						{(
+							Object.entries(BURNED_PRACTICE_ORDER_LABELS) as [BurnedPracticeOrder, string][]
+						).map(([value, label]) => (
+							<Pressable
+								key={value}
+								onPress={() => updateSetting("burnedPracticeOrder", value)}
+								className={`rounded-full px-[14px] py-2 border ${
+									settings.burnedPracticeOrder === value
+										? "bg-kanji border-kanji"
+										: "bg-surface dark:bg-surface-dark border-border dark:border-border-dark"
+								}`}
+								accessibilityRole="button"
+								accessibilityLabel={label}
+								accessibilityState={{ selected: settings.burnedPracticeOrder === value }}
+							>
+								<Text
+									className={`text-[13px] font-heavy ${
+										settings.burnedPracticeOrder === value ? "text-white" : "text-text dark:text-text-dark"
+									}`}
+								>
+									{label}
+								</Text>
+							</Pressable>
+						))}
+					</View>
+
+					<SettingStepper
+						label="Burned Session Size"
+						detail="Maximum burned items per practice session."
+						value={settings.burnedPracticeLimit}
+						min={10}
+						max={200}
+						step={10}
+						onChange={(v) => updateSetting("burnedPracticeLimit", v)}
+					/>
+
+					<SettingToggle
+						label="Include Radicals"
+						detail="Practice burned radicals."
+						value={settings.burnedPracticeIncludeRadicals}
+						onValueChange={(v) => updateSetting("burnedPracticeIncludeRadicals", v)}
+					/>
+
+					<SettingToggle
+						label="Include Kanji"
+						detail="Practice burned kanji."
+						value={settings.burnedPracticeIncludeKanji}
+						onValueChange={(v) => updateSetting("burnedPracticeIncludeKanji", v)}
+					/>
+
+					<SettingToggle
+						label="Include Vocabulary"
+						detail="Practice burned vocabulary."
+						value={settings.burnedPracticeIncludeVocabulary}
+						onValueChange={(v) => updateSetting("burnedPracticeIncludeVocabulary", v)}
 					/>
 				</View>
 

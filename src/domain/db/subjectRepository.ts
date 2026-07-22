@@ -160,6 +160,112 @@ export type SubjectListRow = {
   percentageCorrect: number | null;
 };
 
+export type BurnedSubjectListRow = {
+  id: number;
+  japanese: string;
+  level: number;
+  subjectType: string;
+  primaryReadings: string;
+  primaryMeaning: string;
+  burnedAt: string | null;
+  percentageCorrect: number | null;
+};
+export type BurnedSubjectPage = {
+  limit: number;
+  offset: number;
+};
+
+
+export async function getBurnedSubjectCount(db: AppDatabase): Promise<number> {
+  const row = await db.getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) AS count
+     FROM assignments a
+     INNER JOIN subjects s ON s.id = a.subject_id
+     WHERE a.srs_stage = 9`,
+  );
+  return row?.count ?? 0;
+}
+
+export async function getBurnedSubjects(
+  db: AppDatabase,
+  page?: BurnedSubjectPage,
+): Promise<BurnedSubjectListRow[]> {
+  const paginationSql = page ? ' LIMIT ? OFFSET ?' : '';
+  const paginationParams = page
+    ? [Math.max(1, Math.floor(page.limit)), Math.max(0, Math.floor(page.offset))]
+    : [];
+
+  const rows = await db.getAllAsync<{
+    id: number;
+    japanese: string;
+    level: number;
+    subject_type: string;
+    burned_at: string | null;
+    percentageCorrect: number | null;
+    primary_meaning: string | null;
+    primary_readings_json: string | null;
+  }>(
+
+    `SELECT s.id, s.japanese, s.level, s.subject_type,
+       a.burned_at,
+       rs.percentage_correct AS percentageCorrect,
+       (
+         SELECT json_extract(value, '$.meaning')
+         FROM json_each(
+           CASE WHEN json_valid(s.payload) THEN s.payload ELSE '{}' END,
+           '$.data.meanings'
+         )
+         WHERE json_extract(value, '$.primary') IN (1, 'true')
+            OR json_extract(value, '$.accepted_answer') IN (1, 'true')
+         ORDER BY CASE WHEN json_extract(value, '$.primary') IN (1, 'true') THEN 0 ELSE 1 END
+         LIMIT 1
+       ) AS primary_meaning,
+       (
+         SELECT json_group_array(json_extract(value, '$.reading'))
+         FROM json_each(
+           CASE WHEN json_valid(s.payload) THEN s.payload ELSE '{}' END,
+           '$.data.readings'
+         )
+         WHERE json_extract(value, '$.primary') IN (1, 'true')
+       ) AS primary_readings_json
+     FROM assignments a
+     INNER JOIN subjects s ON s.id = a.subject_id
+     LEFT JOIN review_stats rs ON rs.subject_id = s.id
+     WHERE a.srs_stage = 9
+     ORDER BY a.burned_at IS NULL, a.burned_at ASC, s.level ASC, s.id ASC
+     ${paginationSql}`,
+    ...paginationParams,
+  );
+
+  return rows.map((r) => {
+    let primaryReadings = '';
+    if (r.primary_readings_json) {
+      try {
+        const parsed = JSON.parse(r.primary_readings_json) as unknown;
+        if (Array.isArray(parsed)) {
+          primaryReadings = parsed
+            .filter((value): value is string => typeof value === 'string' && value.length > 0)
+            .join(' · ');
+        }
+      } catch {
+        primaryReadings = '';
+      }
+    }
+
+    return {
+      id: r.id,
+      japanese: r.japanese ?? '',
+      level: r.level,
+      subjectType: r.subject_type,
+      primaryReadings,
+      primaryMeaning: r.primary_meaning ?? '',
+      burnedAt: r.burned_at,
+      percentageCorrect: r.percentageCorrect,
+    };
+  });
+}
+
+
 export async function getSubjectsByLevel(db: AppDatabase, level: number): Promise<SubjectListRow[]> {
   return getAllSubjectRows(db, 'WHERE s.level = ? ORDER BY s.subject_type, s.id', level);
 }

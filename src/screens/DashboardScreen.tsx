@@ -469,6 +469,10 @@ export function DashboardScreen({ apiToken, navigation, onAuthError }: Props) {
             mutedColor={colors.mutedText}
             trackColor={isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(32, 26, 36, 0.08)'}
             onEntryPress={(entry) => {
+              if (entry.label === 'Burned' || (entry.srsMin === 9 && entry.srsMax === 9)) {
+                navigation.navigate('BurnedItems');
+                return;
+              }
               if (entry.srsMin != null && entry.srsMax != null) {
                 navigation.navigate('SubjectBrowse', {
                   title: entry.label,
@@ -533,7 +537,7 @@ export function DashboardScreen({ apiToken, navigation, onAuthError }: Props) {
             <Text className="text-text dark:text-text-dark text-2xl font-black tracking-tight">Shortcuts</Text>
             {burnedCount > 0 ? (
               <Pressable
-                onPress={() => navigation.navigate('ReviewSession', { practiceSource: 'burnedItems' })}
+                onPress={() => navigation.navigate('BurnedItems')}
                 className="flex-row items-center gap-2.5 pt-2 border-t border-[rgba(128,128,128,0.08)]"
                 style={({ pressed }) => pressed ? { opacity: 0.7, transform: [{ scale: 0.99 }] } : undefined}
               >

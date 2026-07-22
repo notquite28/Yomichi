@@ -36,6 +36,7 @@ import { SubjectCatalogScreen } from "../screens/SubjectCatalogScreen";
 import { SubjectDetailScreen } from "../screens/SubjectDetailScreen";
 import { SubjectSearchScreen } from "../screens/SubjectSearchScreen";
 import { SubjectBrowseScreen } from "../screens/SubjectBrowseScreen";
+import { BurnedItemsScreen } from "../screens/BurnedItemsScreen";
 import { useAppTheme } from "../theme/AppThemeProvider";
 import type { RootStackParamList } from "./types";
 
@@ -320,6 +321,7 @@ export function AppNavigator() {
 					/>
 					<Stack.Screen name="SubjectSearch" component={SubjectSearchScreen} />
 					<Stack.Screen name="SubjectBrowse" component={SubjectBrowseScreen} />
+					<Stack.Screen name="BurnedItems" component={BurnedItemsScreen} />
 					<Stack.Screen name="SubjectDetail" component={SubjectDetailScreen} />
 				</>
 			) : (

@@ -1,4 +1,21 @@
-import { parseSynonymJson } from './subjectRepository';
+import {
+  getBurnedSubjects,
+  getBurnedSubjectCount,
+  parseSynonymJson,
+  searchSubjects,
+  type SearchResult,
+} from './subjectRepository';
+import { createTestDatabase } from '../../test/testDb';
+import { putSubjects, putAssignments, putReviewStats } from './database';
+import {
+  makeRadical,
+  makeKanji,
+  makeVocabulary,
+  makeAssignment,
+  makeReviewStat,
+  resetIdCounter,
+} from '../../test/factories';
+import type { AppDatabase } from './database';
 
 describe('parseSynonymJson', () => {
   test('parses valid JSON array of strings', () => {
@@ -23,18 +40,6 @@ describe('parseSynonymJson', () => {
     expect(parseSynonymJson('not json')).toEqual([]);
   });
 });
-
-import { searchSubjects, type SearchResult } from './subjectRepository';
-import { createTestDatabase } from '../../test/testDb';
-import { putSubjects, putAssignments } from './database';
-import {
-  makeRadical,
-  makeKanji,
-  makeVocabulary,
-  makeAssignment,
-  resetIdCounter,
-} from '../../test/factories';
-import type { AppDatabase } from './database';
 
 // ── Test data ────────────────────────────────────────────────────────────────
 // Radical "大"  (level 1, meaning "big")
@@ -211,4 +216,144 @@ describe('searchSubjects', () => {
     expect(exactIds).toContain(2);
     expect(exactIds).toContain(3);
   });
+});
+
+describe('getBurnedSubjects', () => {
+  let db: AppDatabase;
+  let cleanup: () => Promise<void>;
+
+  beforeEach(async () => {
+    resetIdCounter();
+    ({ db, cleanup } = await createTestDatabase());
+
+    const radical = makeRadical({
+      id: 101,
+      characters: '火',
+      level: 1,
+      meanings: [{ meaning: 'Fire', primary: true, accepted_answer: true }],
+      auxiliary_meanings: [],
+    });
+    const olderKanji = makeKanji({
+      id: 102,
+      characters: '山',
+      level: 2,
+      readings: [
+        { reading: 'さん', primary: true, accepted_answer: true, type: 'onyomi' },
+        { reading: 'やま', primary: true, accepted_answer: true, type: 'kunyomi' },
+        { reading: 'せん', primary: false, accepted_answer: true, type: 'onyomi' },
+      ],
+      meanings: [
+        { meaning: 'Mountain', primary: true, accepted_answer: true },
+        { meaning: 'Hill', primary: false, accepted_answer: true },
+      ],
+      component_subject_ids: [],
+      amalgamation_subject_ids: [],
+      auxiliary_meanings: [],
+    });
+    const newerVocab = makeVocabulary({
+      id: 103,
+      characters: '火山',
+      level: 3,
+      readings: [{ reading: 'かざん', primary: true, accepted_answer: true, type: 'onyomi' }],
+      meanings: [{ meaning: 'Volcano', primary: true, accepted_answer: true }],
+      component_subject_ids: [],
+      context_sentences: [],
+      parts_of_speech: ['noun'],
+      pronunciation_audios: [],
+      auxiliary_meanings: [],
+    });
+    const activeKanji = makeKanji({
+      id: 104,
+      characters: '水',
+      level: 1,
+      readings: [{ reading: 'すい', primary: true, accepted_answer: true, type: 'onyomi' }],
+      meanings: [{ meaning: 'Water', primary: true, accepted_answer: true }],
+      component_subject_ids: [],
+      amalgamation_subject_ids: [],
+      auxiliary_meanings: [],
+    });
+
+    await putSubjects(db, [radical, olderKanji, newerVocab, activeKanji]);
+    await putAssignments(db, [
+      makeAssignment(101, {
+        subject_type: 'radical',
+        srs_stage: 9,
+        burned_at: '2024-03-01T00:00:00.000Z',
+      }),
+      makeAssignment(102, {
+        subject_type: 'kanji',
+        srs_stage: 9,
+        burned_at: '2024-01-01T00:00:00.000Z',
+      }),
+      makeAssignment(103, {
+        subject_type: 'vocabulary',
+        srs_stage: 9,
+        burned_at: '2024-05-01T00:00:00.000Z',
+      }),
+      makeAssignment(104, {
+        subject_type: 'kanji',
+        srs_stage: 5,
+        burned_at: null,
+      }),
+    ]);
+    await putReviewStats(db, [
+      makeReviewStat(102, { percentage_correct: 88 }),
+    ]);
+  });
+
+  afterEach(async () => {
+    await cleanup();
+  });
+
+  test('returns only stage-9 subjects ordered by oldest burned', async () => {
+    const rows = await getBurnedSubjects(db);
+    expect(rows.map((row) => row.id)).toEqual([102, 101, 103]);
+  });
+
+  test('returns a stable page and total count', async () => {
+    await expect(getBurnedSubjectCount(db)).resolves.toBe(3);
+    await expect(getBurnedSubjects(db, { limit: 2, offset: 1 })).resolves.toMatchObject([
+      { id: 101 },
+      { id: 103 },
+    ]);
+  });
+
+  test('joins primary readings and primary meaning', async () => {
+    const rows = await getBurnedSubjects(db);
+    const kanji = rows.find((row) => row.id === 102);
+    expect(kanji).toMatchObject({
+      japanese: '山',
+      primaryReadings: 'さん · やま',
+      primaryMeaning: 'Mountain',
+      percentageCorrect: 88,
+      burnedAt: '2024-01-01T00:00:00.000Z',
+    });
+  });
+
+  test('radicals have empty primary readings', async () => {
+    const rows = await getBurnedSubjects(db);
+    const radical = rows.find((row) => row.id === 101);
+    expect(radical).toMatchObject({
+      japanese: '火',
+      primaryReadings: '',
+      primaryMeaning: 'Fire',
+    });
+  });
+  test('tolerates an individually corrupted cached payload', async () => {
+    await db.runAsync('UPDATE subjects SET payload = ? WHERE id = ?', 'truncated {', 101);
+
+    const rows = await getBurnedSubjects(db);
+
+    expect(rows.map((row) => row.id)).toEqual([102, 101, 103]);
+    expect(rows.find((row) => row.id === 101)).toMatchObject({
+      japanese: '火',
+      primaryReadings: '',
+      primaryMeaning: '',
+    });
+    expect(rows.find((row) => row.id === 102)).toMatchObject({
+      primaryReadings: 'さん · やま',
+      primaryMeaning: 'Mountain',
+    });
+  });
+
 });

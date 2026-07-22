@@ -15,6 +15,13 @@ export type ReviewOrder =
 
 export type SubjectType = 'radical' | 'kanji' | 'vocabulary';
 
+export type BurnedPracticeOrder =
+  | 'oldestBurned'
+  | 'newestBurned'
+  | 'random'
+  | 'levelAscending';
+
+
 export type AppSettings = {
   notificationsEnabled: boolean;
   notificationsBadging: boolean;
@@ -46,6 +53,11 @@ export type AppSettings = {
   offlineAudioCellular: boolean;
   useKatakanaForOnyomi: boolean;
   showAllReadings: boolean;
+  burnedPracticeOrder: BurnedPracticeOrder;
+  burnedPracticeLimit: number;
+  burnedPracticeIncludeRadicals: boolean;
+  burnedPracticeIncludeKanji: boolean;
+  burnedPracticeIncludeVocabulary: boolean;
 };
 
 export const defaultSettings: AppSettings = {
@@ -79,6 +91,11 @@ export const defaultSettings: AppSettings = {
   offlineAudioCellular: false,
   useKatakanaForOnyomi: false,
   showAllReadings: false,
+  burnedPracticeOrder: 'oldestBurned',
+  burnedPracticeLimit: 50,
+  burnedPracticeIncludeRadicals: true,
+  burnedPracticeIncludeKanji: true,
+  burnedPracticeIncludeVocabulary: true,
 };
 
 export type SettingsMigration = {
