@@ -23,6 +23,7 @@ type Props = {
   wrappingUp: boolean;
   showCheats: boolean;
   canAddSynonym: boolean;
+  showExplainMistake?: boolean;
   isOffline: boolean;
   isVocabulary: boolean;
 
@@ -34,6 +35,7 @@ type Props = {
   onOverrideCorrect: () => void;
   onAskAgainLater: () => void;
   onAddSynonym: () => void;
+  onExplainMistake?: () => void;
 };
 
 const AnimatedView = Animated.View;
@@ -57,6 +59,7 @@ export function FloatingReviewPill({
   wrappingUp,
   showCheats,
   canAddSynonym,
+  showExplainMistake = false,
   isOffline,
   isVocabulary,
   onSubmit,
@@ -67,6 +70,7 @@ export function FloatingReviewPill({
   onOverrideCorrect,
   onAskAgainLater,
   onAddSynonym,
+  onExplainMistake,
 }: Props) {
   const { colors, isDark } = useAppTheme();
   const keyboardHeight = useKeyboardHeight();
@@ -214,6 +218,15 @@ export function FloatingReviewPill({
                     effectivePillBg={effectivePillBg}
                   />
                 )}
+                {showExplainMistake && onExplainMistake ? (
+                  <AnimatedIconButton
+                    icon="help-circle"
+                    label="Why was this wrong?"
+                    onPress={onExplainMistake}
+                    disabled={disabled}
+                    effectivePillBg={effectivePillBg}
+                  />
+                ) : null}
               </>
             )}
 

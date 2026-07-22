@@ -10,6 +10,8 @@ import { findBySubjectId } from '../domain/db/studyMaterialRepository';
 import { getSubjectById, getSubjectsByIds } from '../domain/db/subjectRepository';
 import { queueStudyMaterialUpdate } from '../domain/study/studyRepository';
 import { LiquidGlassButton } from '../components/LiquidGlassButton';
+import { StudyCoachPanel } from '../components/coach/StudyCoachPanel';
+import { useCoachStore } from '../domain/ai/coachStore';
 import { SubjectDetailsContent } from '../components/SubjectDetailsContent';
 import { SubjectHeroCard } from '../components/SubjectHeroCard';
 import { RootStackParamList } from '../navigation/types';
@@ -39,6 +41,8 @@ export function SubjectDetailScreen({ navigation, route }: Props) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const useKatakana = useSettingsStore((s) => s.useKatakanaForOnyomi);
+  const studyCoachEnabled = useSettingsStore((s) => s.studyCoachEnabled);
+  const coachStatus = useCoachStore((s) => s.status);
   const showAllReadings = useSettingsStore((s) => s.showAllReadings);
 
   const loadSubject = useCallback(async () => {
@@ -217,6 +221,19 @@ export function SubjectDetailScreen({ navigation, route }: Props) {
           onEditMeaningNote={(value) => handleSave('meaningNote', value)}
           onEditReadingNote={(value) => handleSave('readingNote', value)}
         />
+
+        {studyCoachEnabled &&
+        coachStatus !== 'unavailable' &&
+        coachStatus !== 'not_installed' ? (
+          <StudyCoachPanel
+            subject={subject}
+            studyMaterial={studyMaterial}
+            componentSubjects={[...componentSubjects.values()]}
+            onSaveNote={(field, value) => {
+              void handleSave(field, value);
+            }}
+          />
+        ) : null}
 
         {saveMessage ? (
           <Text

@@ -109,15 +109,15 @@ describe('loadSettings', () => {
   test('migrations run in order', async () => {
     // Temporarily push a future migration to verify ordering
     const originalLength = settingsMigrations.length;
-    const v3: SettingsMigration = {
-      version: 3,
+    const vNext: SettingsMigration = {
+      version: CURRENT_SETTINGS_VERSION + 1,
       migrate(stored: Record<string, unknown>): Record<string, unknown> {
         const result = { ...stored };
         result['reviewBatchSize'] = 10;
         return result;
       },
     };
-    settingsMigrations.push(v3);
+    settingsMigrations.push(vNext);
 
     try {
       // Stored at v0 — should trigger all migrations including the temporary one

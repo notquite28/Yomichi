@@ -157,4 +157,20 @@ export const migrations: Migration[] = [
         ON pending_study_materials(subject_id);
     `,
   },
+  {
+    version: 3,
+    sql: `
+      CREATE TABLE IF NOT EXISTS coach_cache (
+        subject_id INTEGER NOT NULL,
+        action TEXT NOT NULL,
+        prompt_hash TEXT NOT NULL,
+        response TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (subject_id, action, prompt_hash)
+      );
+
+      CREATE INDEX IF NOT EXISTS coach_cache_subject_idx
+        ON coach_cache(subject_id);
+    `,
+  },
 ];

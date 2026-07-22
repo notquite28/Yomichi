@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { LiquidGlassButton } from "../components/LiquidGlassButton";
+import { CoachDownloadCard } from "../components/coach/CoachDownloadCard";
 import {
 	getVoiceActorOptions,
 	type VoiceActorOption,
@@ -509,6 +510,20 @@ export function SettingsScreen({ navigation, onLoggedOut }: Props) {
 						value={settings.interruptBackgroundAudio}
 						onValueChange={(v) => updateSetting("interruptBackgroundAudio", v)}
 					/>
+				</View>
+
+				<View
+					className="rounded-[26px] p-[18px] bg-[#fffdf8] dark:bg-[#15141a] border border-[rgba(32,26,36,0.08)] dark:border-[rgba(255,255,255,0.08)] gap-[10px]"
+					style={{
+						shadowColor: "#000000",
+						shadowOpacity: theme.isDark ? 0.16 : 0.05,
+						shadowRadius: 18,
+						shadowOffset: { width: 0, height: 10 },
+						elevation: 4,
+					}}
+				>
+					<Text className="text-2xl font-black tracking-tight text-text dark:text-text-dark">Study Coach</Text>
+					<CoachDownloadCard />
 				</View>
 
 				<View

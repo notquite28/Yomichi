@@ -2,6 +2,7 @@ packages:
   - '.'
 allowBuilds:
   better-sqlite3: true
+  llama.rn: true
 minimumReleaseAgeExclude:
   - '@expo/cli@55.0.31'
   - '@expo/metro-config@55.0.22'

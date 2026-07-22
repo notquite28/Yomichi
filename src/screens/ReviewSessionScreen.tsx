@@ -21,6 +21,9 @@ import { getSubjectsByIds } from '../domain/db/subjectRepository';
 import { getBurnedItemPracticeQueue, getLeechPracticeQueue, getRecentMistakePracticeQueue, getReviewQueue, queueReviewResult, queueStudyMaterialUpdate, StudyQueueItem } from '../domain/study/studyRepository';
 import { CenteredMessage, ScreenLayout, SessionHeader } from '../components/ScreenLayout';
 import { FloatingReviewPill } from '../components/FloatingReviewPill';
+import { CoachMistakeCard } from '../components/coach/CoachMistakeCard';
+import { cancelGeneration, runCoachAction } from '../domain/ai/coachService';
+import { useCoachStore } from '../domain/ai/coachStore';
 import { useConfirmLeave } from '../hooks/useConfirmLeave';
 import { useGuidanceMessage } from '../hooks/useGuidanceMessage';
 import { ConfirmLeaveBanner } from '../components/ConfirmLeaveBanner';
@@ -98,6 +101,11 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
   const [showAllDetails, setShowAllDetails] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   const [audioMessage, setAudioMessage] = useState<string | null>(null);
+  const [mistakeCoachText, setMistakeCoachText] = useState('');
+  const [mistakeCoachError, setMistakeCoachError] = useState<string | null>(null);
+  const [mistakeCoachRunning, setMistakeCoachRunning] = useState(false);
+  const studyCoachEnabled = appSettings.studyCoachEnabled;
+  const coachStatus = useCoachStore((s) => s.status);
   const { guidanceMessage, showGuidance, clearGuidance } = useGuidanceMessage();
   const [subjectDetailData, setSubjectDetailData] = useState<{
     componentSubjects: Map<number, import('../domain/answers/answerChecker').SubjectAnswerData>;
@@ -175,6 +183,7 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
   }, [practiceSource, queueItems, settings, userLevel]);
 
   useEffect(() => () => {
+    cancelGeneration();
     stopVocabularyAudio().catch(() => {});
   }, []);
 
@@ -252,6 +261,7 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
     useConfirmLeave(navigation, shouldConfirmLeave);
 
   const handleConfirmLeave = () => {
+    cancelGeneration();
     setAudioMessage(null);
     rawHandleConfirmLeave();
   };
@@ -408,6 +418,10 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
       if (feedback.subjectFinished) {
         await persistFinishedReview(feedback.item);
       }
+      cancelGeneration();
+      setMistakeCoachText('');
+      setMistakeCoachError(null);
+      setMistakeCoachRunning(false);
       setFeedback(null);
       setAnswer('');
       setLastMarkResult(null);
@@ -427,6 +441,10 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
       return;
     }
 
+    cancelGeneration();
+    setMistakeCoachText('');
+    setMistakeCoachError(null);
+    setMistakeCoachRunning(false);
     const result = session.overrideCorrect();
     setLastMarkResult(result);
     setFeedback({
@@ -448,6 +466,10 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
     setError(null);
 
     try {
+      cancelGeneration();
+      setMistakeCoachText('');
+      setMistakeCoachError(null);
+      setMistakeCoachRunning(false);
       session.moveActiveTaskToEnd();
       setFeedback(null);
       setAnswer('');
@@ -475,6 +497,10 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
     setError(null);
 
     try {
+      cancelGeneration();
+      setMistakeCoachText('');
+      setMistakeCoachError(null);
+      setMistakeCoachRunning(false);
       const item = feedback.item;
       const synonym = answer.trim();
       const result = session.addSynonym(synonym);
@@ -519,6 +545,7 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
 
   const handleEndSession = () => {
     setQuickSettingsOpen(false);
+    cancelGeneration();
     setAudioMessage(null);
     allowLeavingRef.current = true;
     navigation.goBack();
@@ -527,6 +554,46 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
   const enableCheats = settings.enableCheats;
   const showCheats = Boolean(enableCheats && feedback && !feedback.correct);
   const canAddSynonym = Boolean(showCheats && feedback?.taskType === 'meaning' && answer.trim().length > 0);
+  const showExplainMistake = Boolean(
+    showCheats &&
+      studyCoachEnabled &&
+      (coachStatus === 'ready' ||
+        coachStatus === 'loaded' ||
+        coachStatus === 'loading' ||
+        coachStatus === 'generating' ||
+        coachStatus === 'error'),
+  );
+
+  const handleExplainMistake = async () => {
+    if (!feedback || feedback.correct || mistakeCoachRunning) {
+      return;
+    }
+    setMistakeCoachRunning(true);
+    setMistakeCoachError(null);
+    setMistakeCoachText('');
+    try {
+      const components = subjectDetailData
+        ? [...subjectDetailData.componentSubjects.values()]
+        : undefined;
+      const result = await runCoachAction({
+        action: 'why_wrong',
+        subject: feedback.item.subject,
+        studyMaterial: subjectDetailData?.studyMaterial,
+        componentSubjects: components,
+        taskType: feedback.taskType,
+        userAnswer: answer,
+        onToken: (soFar) => setMistakeCoachText(soFar),
+      });
+      setMistakeCoachText(result.text);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught);
+      if (!/cancel/i.test(message)) {
+        setMistakeCoachError(message);
+      }
+    } finally {
+      setMistakeCoachRunning(false);
+    }
+  };
 
   if (isLoading) {
     return <CenteredMessage label={practiceSource ? 'Loading practice...' : 'Loading reviews...'} />;
@@ -600,6 +667,10 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
           onOverrideCorrect={handleOverrideCorrect}
           onAskAgainLater={handleAskAgainLater}
           onAddSynonym={handleAddSynonym}
+          showExplainMistake={showExplainMistake}
+          onExplainMistake={() => {
+            void handleExplainMistake();
+          }}
         />
       }
       overlay={
@@ -705,6 +776,20 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
         </Text>
       ) : null}
 
+
+      {(mistakeCoachText || mistakeCoachRunning || mistakeCoachError) && feedback && !feedback.correct ? (
+        <CoachMistakeCard
+          text={mistakeCoachText}
+          isRunning={mistakeCoachRunning}
+          error={mistakeCoachError}
+          onDismiss={() => {
+            cancelGeneration();
+            setMistakeCoachText('');
+            setMistakeCoachError(null);
+            setMistakeCoachRunning(false);
+          }}
+        />
+      ) : null}
       {feedback && subjectDetailData && displayItem ? (
         showAllDetails || appSettings.showFullAnswer ? (
           <SubjectDetailsContent

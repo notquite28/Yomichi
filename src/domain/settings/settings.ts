@@ -58,6 +58,8 @@ export type AppSettings = {
   burnedPracticeIncludeRadicals: boolean;
   burnedPracticeIncludeKanji: boolean;
   burnedPracticeIncludeVocabulary: boolean;
+  studyCoachEnabled: boolean;
+  studyCoachWifiOnlyDownload: boolean;
 };
 
 export const defaultSettings: AppSettings = {
@@ -96,6 +98,8 @@ export const defaultSettings: AppSettings = {
   burnedPracticeIncludeRadicals: true,
   burnedPracticeIncludeKanji: true,
   burnedPracticeIncludeVocabulary: true,
+  studyCoachEnabled: false,
+  studyCoachWifiOnlyDownload: true,
 };
 
 export type SettingsMigration = {
@@ -136,6 +140,19 @@ export const settingsMigrations: SettingsMigration[] = [
     migrate(stored: Record<string, unknown>): Record<string, unknown> {
       const result = { ...stored };
       delete result['appearance'];
+      return result;
+    },
+  },
+  {
+    version: 3,
+    migrate(stored: Record<string, unknown>): Record<string, unknown> {
+      const result = { ...stored };
+      if (!('studyCoachEnabled' in result)) {
+        result.studyCoachEnabled = false;
+      }
+      if (!('studyCoachWifiOnlyDownload' in result)) {
+        result.studyCoachWifiOnlyDownload = true;
+      }
       return result;
     },
   },
