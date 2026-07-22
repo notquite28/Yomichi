@@ -2,6 +2,11 @@ import React from 'react';
 import { Image, Pressable, Text, TextInput, View } from 'react-native';
 
 import { SubjectAnswerData } from '../domain/answers/answerChecker';
+import {
+  normalizeMnemonicMarkup,
+  parseMnemonicMarkup,
+  type MnemonicToken,
+} from '../domain/ai/mnemonicMarkup';
 import { useAppTheme } from '../theme/AppThemeProvider';
 import { colorForSubjectType } from '../theme/subjectColors';
 
@@ -126,9 +131,11 @@ export function SubjectDetailsContent({
     >
       <MnemonicText text={subject.meaningMnemonic} subjectLookup={componentSubjects} />
       {subject.meaningHint ? (
-        <Text className="text-[13px] italic font-bold text-text-muted dark:text-text-muted-dark mt-1">
-          Hint: {subject.meaningHint}
-        </Text>
+        <MnemonicText
+          text={`Hint: ${subject.meaningHint}`}
+          subjectLookup={componentSubjects}
+          className="text-[13px] italic font-bold text-text-muted dark:text-text-muted-dark mt-1"
+        />
       ) : null}
     </DetailSection>
   ) : null;
@@ -137,9 +144,11 @@ export function SubjectDetailsContent({
     <DetailSection key="readingMnemonic" title="Reading Explanation">
       <MnemonicText text={subject.readingMnemonic} subjectLookup={componentSubjects} />
       {subject.readingHint ? (
-        <Text className="text-[13px] italic font-bold text-text-muted dark:text-text-muted-dark mt-1">
-          Hint: {subject.readingHint}
-        </Text>
+        <MnemonicText
+          text={`Hint: ${subject.readingHint}`}
+          subjectLookup={componentSubjects}
+          className="text-[13px] italic font-bold text-text-muted dark:text-text-muted-dark mt-1"
+        />
       ) : null}
     </DetailSection>
   ) : null;
@@ -439,35 +448,7 @@ export function ComponentChipContent({ subject, color }: {
 
 const EMPTY_SUBJECT_LOOKUP = new Map<number, SubjectAnswerData>();
 
-export type MnemonicToken =
-  | { type: 'text'; text: string }
-  | { type: 'tag'; tag: string; text: string }
-  | { type: 'curly'; text: string };
-
-const kTagPattern = /(<(vocabulary|reading|ja|jp|kanji|radical|kan|meaning|b|em|i|strong)>)(.*?)(<\/\2>)|(\{([^}]+)\})/gi;
-
-export function parseMnemonic(text: string): MnemonicToken[] {
-  const tokens: MnemonicToken[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = kTagPattern.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      tokens.push({ type: 'text', text: text.slice(lastIndex, match.index) });
-    }
-    if (match[1] && match[3] !== undefined) {
-      tokens.push({ type: 'tag', tag: match[2]!.toLowerCase(), text: match[3] });
-    } else if (match[5] && match[6]) {
-      tokens.push({ type: 'curly', text: match[6] });
-    }
-    lastIndex = match.index + match[0].length;
-  }
-  if (lastIndex < text.length) {
-    tokens.push({ type: 'text', text: text.slice(lastIndex) });
-  }
-  return tokens;
-}
-
-const formattingTags = new Set(['b', 'em', 'i', 'strong']);
+export type { MnemonicToken };
 
 const tagColors: Record<string, string> = {
   radical: '#00aaff',
@@ -489,7 +470,7 @@ export function MnemonicText({
   subjectLookup?: Map<number, SubjectAnswerData>;
   className?: string;
 }) {
-  const tokens = parseMnemonic(text);
+  const tokens = parseMnemonicMarkup(normalizeMnemonicMarkup(text));
   const lookup = subjectLookup ?? EMPTY_SUBJECT_LOOKUP;
   return (
     <Text className={className}>

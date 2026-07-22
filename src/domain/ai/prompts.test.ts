@@ -129,6 +129,29 @@ describe('buildSubjectContextBlock', () => {
     expect(block).toContain('くう');
     expect(block).toContain('家 (kanji)');
     expect(block).toMatch(/whole-word/i);
+    expect(block).toContain('App grading notes:');
+    expect(block).toContain(
+      'Reading tasks accept only the listed accepted readings (not component-glued readings unless listed).',
+    );
+  });
+
+  test('why_wrong meaning context includes synonym grading hint', () => {
+    const block = buildSubjectContextBlock({
+      action: 'why_wrong',
+      subject: empty,
+      componentSubjects: emptyComponents,
+      taskType: 'meaning',
+      userAnswer: 'temp',
+    });
+    expect(block).toContain('Review task: meaning');
+    expect(block).toContain('What you typed: temp');
+    expect(block).toContain('App grading notes:');
+    expect(block).toContain(
+      "Meaning tasks accept official meanings plus the user's meaning synonyms listed above",
+    );
+    expect(block).toContain(
+      'Hint for coach: if the typed English is a reasonable synonym or abbreviation of an accepted meaning, prefer a synonym-suggestion explanation over Japanese morphology.',
+    );
   });
 
   test('does not classify readings without explicit primary flags as primary', () => {
@@ -162,6 +185,11 @@ describe('buildCoachMessages', () => {
     expect(messages[0]?.role).toBe('system');
     expect(messages[0]?.content).toContain('second person');
     expect(messages[0]?.content).toMatch(/no markdown/i);
+    expect(messages[0]?.content).toMatch(/radicals/i);
+    expect(messages[0]?.content).toMatch(/kanji/i);
+    expect(messages[0]?.content).toMatch(/vocabulary/i);
+    expect(messages[0]?.content).toMatch(/meaning OR reading/i);
+    expect(messages[0]?.content).toMatch(/synonym/i);
     expect(messages[1]?.role).toBe('user');
     expect(messages[1]?.content).toContain('personal mnemonic');
     expect(messages[1]?.content).toContain('Characters / word: 木');
@@ -178,6 +206,33 @@ describe('buildCoachMessages', () => {
     expect(text).toMatch(/Never write "the learner"/i);
     expect(text).toMatch(/No markdown/i);
     expect(text).toContain('くうきや');
+  });
+
+  test('why_wrong meaning instruction steers toward Add as synonym', () => {
+    const text = actionInstruction('why_wrong', {
+      action: 'why_wrong',
+      subject: empty,
+      taskType: 'meaning',
+      userAnswer: 'temp',
+    });
+    expect(text).toContain('Add as synonym');
+    expect(text).toContain('Do not invent Japanese morphology');
+    expect(text).toMatch(/meaning review/i);
+    expect(text).not.toMatch(/wrong on\/kun for a kanji/i);
+  });
+
+  test('why_wrong reading instruction stays on whole-word readings', () => {
+    const text = actionInstruction('why_wrong', {
+      action: 'why_wrong',
+      subject: empty,
+      taskType: 'reading',
+      userAnswer: 'けいおん',
+    });
+    expect(text).toMatch(/reading review/i);
+    expect(text).toMatch(/whole-word accepted reading/i);
+    expect(text).toContain('Do not digress into English meaning explanations');
+    expect(text).toContain('Do not invent component readings');
+    expect(text).not.toContain('Add as synonym');
   });
 
   test('actionInstruction covers all actions', () => {

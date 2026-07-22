@@ -255,6 +255,19 @@ export function buildSubjectContextBlock(input: PromptBuildInput): string {
         'Note: for vocabulary, do not accept a reading made by gluing each kanji’s on/kun reading unless that exact string is in the accepted readings list. Whole-word readings often differ (jukujikun, irregular, or fixed kun compounds).',
       );
     }
+    lines.push('App grading notes:');
+    lines.push(
+      '- Meaning tasks accept official meanings plus the user\'s meaning synonyms listed above; abbreviations are not auto-accepted unless added as a synonym or matching fuzzy settings.',
+    );
+    lines.push(
+      '- Reading tasks accept only the listed accepted readings (not component-glued readings unless listed).',
+    );
+    lines.push('- This miss is scored wrong for the Review task above only.');
+    if (task === 'meaning') {
+      lines.push(
+        'Hint for coach: if the typed English is a reasonable synonym or abbreviation of an accepted meaning, prefer a synonym-suggestion explanation over Japanese morphology.',
+      );
+    }
     const allow = input.evidence?.factRefAllowlist ?? [];
     if (allow.length > 0) {
       lines.push(`Allowed factRefs: ${allow.join(', ')}`);
@@ -301,21 +314,66 @@ English explanation; quote Japanese as needed. Plain prose. Optional <kanji>/<vo
     case 'why_wrong': {
       const task = input.taskType ?? 'unknown';
       const typed = input.userAnswer?.trim() || '(empty)';
-      return `The user just missed a ${task} review.
+
+      const sharedRules = `Rules:
+- Always address the user as you/your. Never write "the learner", "the student", "they", or "the user".
+- No markdown. You may emphasize the correct meaning/reading with <meaning>…</meaning> or <reading>…</reading> only.
+- Do not invent extra accepted answers.
+- Stay faithful to the official accepted lists in the facts.`;
+
+      if (task === 'meaning') {
+        return `The user just missed a meaning review.
+They typed: "${typed}"
+Correct accepted meaning answer(s) are listed in the subject facts — treat those lists as inviolable.
+
+Write 3–5 short sentences aimed at the user (you/your), plain prose:
+1) State what they typed vs the correct accepted meaning(s) for this meaning task only.
+2) Name the likely confusion from: near-synonym / abbreviation / informal wording; confusing with a component kanji’s English meaning or a related word; mixing up with another item’s meaning; blacklisted/false friend if the facts support it.
+3) Give one concrete memory tip grounded in the stripped WK mnemonic or components.
+
+Synonym / abbreviation rule (load-bearing):
+- If the typed answer is a clear shortening, informal form, or near-synonym of an accepted meaning (examples: temp↔temperature, thanks↔gratitude, main stream↔mainstream), say so explicitly and tell the user they can Add as synonym on this wrong answer so it grades correct next time.
+- Do not invent that the app already accepts it.
+- Do not invent Japanese morphology (jukugo, on’yomi, okurigana) as the reason for an English meaning miss.
+
+Literal component trap:
+- If they answered a composition of component meanings (e.g. “main river” when the accepted meaning is “Mainstream”), explain that components motivate a story but the graded English meaning is the accepted list. Stay faithful to accepted meanings.
+
+Forbidden: inventing readings, redefining the word away from accepted meanings, Japanese grammar lectures unless the typed answer was Japanese (invalid for meaning tasks). Do not invent Japanese morphology as the reason for an English miss.
+
+${sharedRules}`;
+      }
+
+      if (task === 'reading') {
+        return `The user just missed a reading review.
+They typed: "${typed}"
+Correct accepted reading answer(s) are listed in the subject facts — treat those lists as inviolable.
+
+Write 3–5 short sentences aimed at the user (you/your), plain prose:
+1) State what they typed vs the correct accepted reading(s) for this reading task only.
+2) Name the likely confusion from: wrong on/kun for a kanji; gluing component readings for vocabulary; similar-sounding reading; wrong primary vs alternate.
+3) Give one concrete memory tip grounded in the stripped WK mnemonic or component reading facts.
+
+Reading rules:
+- Use component reading facts only to explain the miss; always restate the whole-word accepted reading from the list.
+- Do not digress into English meaning explanations beyond a short “this word means X” anchor if needed for the mnemonic.
+- Do not invent component readings not present in the component facts block.
+- For vocabulary, if they pieced together component readings, explain that the whole word has its own accepted reading from the list (jukujikun / irregular caution).
+
+${sharedRules}`;
+      }
+
+      return `The user just missed a review (task type unknown).
 They typed: "${typed}"
 Correct accepted answer(s) are listed in the subject facts — treat those lists as inviolable.
 
 Write 3–5 short sentences aimed at the user (you/your), plain prose:
-1) State what was wrong in one clear line (your answer vs the correct reading/meaning).
-2) Name the likely confusion using the facts (e.g. onyomi vs kunyomi, component kanji reading vs whole vocabulary reading, similar meaning, or a wrong radical meaning).
-3) Give one concrete memory tip — prefer a mini-mnemonic that uses the components or the official WK mnemonic (facts already have tags stripped).
+1) State what they typed vs the correct accepted answer(s) for the task implied by the typed script (kana → reading, Latin → meaning).
+2) Name the likely confusion from the facts only.
+3) Give one concrete memory tip grounded in the stripped WK mnemonic or components.
+Use only listed accepted answers for the task implied by the typed script (kana → reading, Latin → meaning).
 
-Rules:
-- Always address the user as you/your. Never write "the learner", "the student", "they", or "the user".
-- No markdown. You may emphasize the correct meaning/reading with <meaning>…</meaning> or <reading>…</reading> only.
-- Do not invent extra accepted answers.
-- For vocabulary readings, if they pieced together component readings, explain that the whole word has its own accepted reading from the list.
-- Stay faithful to the official meaning (e.g. do not redefine "fat" as "strong" unless that is an accepted meaning).`;
+${sharedRules}`;
     }
     case 'mistake_lens':
       return `Return ONLY a single JSON object (no markdown fences, no prose outside JSON) with this exact shape:

@@ -30,6 +30,7 @@ import { LessonActionPill } from '../components/LessonActionPill';
 import { useConfirmLeave } from '../hooks/useConfirmLeave';
 import { useGuidanceMessage } from '../hooks/useGuidanceMessage';
 import { SubjectHeroCard } from '../components/SubjectHeroCard';
+import { MnemonicText } from '../components/SubjectDetailsContent';
 import { RootStackParamList } from '../navigation/types';
 import { useAppTheme } from '../theme/AppThemeProvider';
 import { colorForSubjectType } from '../theme/subjectColors';
@@ -736,9 +737,11 @@ function DetailSections({
         >
           <MnemonicText text={subject.meaningMnemonic} subjectLookup={subjectLookup} />
           {subject.meaningHint ? (
-            <Text className="text-[13px] italic font-bold text-text-muted dark:text-text-muted-dark mt-1">
-              Hint: {subject.meaningHint}
-            </Text>
+            <MnemonicText
+              text={`Hint: ${subject.meaningHint}`}
+              subjectLookup={subjectLookup}
+              className="text-[13px] italic font-bold text-text-muted dark:text-text-muted-dark mt-1"
+            />
           ) : null}
         </DetailSection>
       ) : null}
@@ -747,9 +750,11 @@ function DetailSections({
         <DetailSection title="Reading Explanation">
           <MnemonicText text={subject.readingMnemonic} subjectLookup={subjectLookup} />
           {subject.readingHint ? (
-            <Text className="text-[13px] italic font-bold text-text-muted dark:text-text-muted-dark mt-1">
-              Hint: {subject.readingHint}
-            </Text>
+            <MnemonicText
+              text={`Hint: ${subject.readingHint}`}
+              subjectLookup={subjectLookup}
+              className="text-[13px] italic font-bold text-text-muted dark:text-text-muted-dark mt-1"
+            />
           ) : null}
         </DetailSection>
       ) : null}
@@ -836,88 +841,6 @@ function DetailSection({
       </View>
     </View>
   );
-}
-
-function MnemonicText({
-  text,
-  subjectLookup,
-}: {
-  text: string;
-  subjectLookup: Map<number, SubjectAnswerData>;
-}) {
-  const tagColors: Record<string, string> = {
-    radical: '#00aaff',
-    kanji: '#ff00aa',
-    reading: '#aa00ff',
-    meaning: '#ff00aa',
-  };
-  const defaultHighlightColor = '#ff00aa';
-
-  const tokens = parseMnemonic(text);
-  return (
-    <Text className="text-[16px] leading-[22px] font-heavy text-text dark:text-text-dark">
-      {tokens.map((token, idx) => {
-        if (token.type === 'tag') {
-          const color = tagColors[token.tag ?? ''] ?? defaultHighlightColor;
-          return (
-            <Text key={idx} className="font-black" style={{ color }}>
-              {token.text}
-            </Text>
-          );
-        }
-        if (token.type === 'curly') {
-          const content = token.text;
-          const subject = [...subjectLookup.values()].find(
-            (s) =>
-              s.meanings.some((m) => m.meaning.toLowerCase() === content.toLowerCase()) ||
-              s.japanese === content,
-          );
-          if (subject?.japanese) {
-            return (
-              <Text key={idx} className="font-black text-kanji">
-                {subject.japanese}
-              </Text>
-            );
-          }
-          return (
-            <Text key={idx} className="font-black text-kanji">
-              {content}
-            </Text>
-          );
-        }
-        return <Text key={idx}>{token.text}</Text>;
-      })}
-    </Text>
-  );
-}
-
-type MnemonicToken = { type: 'text'; text: string } | { type: 'tag'; tag: string; text: string } | { type: 'curly'; text: string };
-
-function parseMnemonic(text: string): MnemonicToken[] {
-  const tokens: MnemonicToken[] = [];
-  const pattern = /(<(radical|kanji|reading|meaning)>)(.*?)(<\/\2>)|(\{([^}]+)\})/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      tokens.push({ type: 'text', text: text.slice(lastIndex, match.index) });
-    }
-
-    if (match[1] && match[3] !== undefined) {
-      tokens.push({ type: 'tag', tag: match[2]!, text: match[3] });
-    } else if (match[5] && match[6]) {
-      tokens.push({ type: 'curly', text: match[6] });
-    }
-
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (lastIndex < text.length) {
-    tokens.push({ type: 'text', text: text.slice(lastIndex) });
-  }
-
-  return tokens;
 }
 
 function LessonQuizSummary({
