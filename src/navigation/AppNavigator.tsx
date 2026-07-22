@@ -9,6 +9,8 @@ import {
 
 import { WaniKaniClient } from "../domain/api/WaniKaniClient";
 import { getLastSyncTime, openAppDatabase } from "../domain/db/database";
+import { getCoachStatus, releaseModel } from "../domain/ai/coachService";
+import { pruneLearningHistory } from "../domain/study/reviewAttempts";
 import { describeSyncError, logErrorBestEffort, logSyncError } from "../domain/db/errorLog";
 import {
 	ensureReviewNotificationChannel,
@@ -37,6 +39,7 @@ import { SubjectDetailScreen } from "../screens/SubjectDetailScreen";
 import { SubjectSearchScreen } from "../screens/SubjectSearchScreen";
 import { SubjectBrowseScreen } from "../screens/SubjectBrowseScreen";
 import { BurnedItemsScreen } from "../screens/BurnedItemsScreen";
+import { WeakSpotClinicScreen } from "../screens/WeakSpotClinicScreen";
 import { useAppTheme } from "../theme/AppThemeProvider";
 import type { RootStackParamList } from "./types";
 
@@ -144,6 +147,17 @@ export function AppNavigator() {
 					onCheckpoint: () => useSyncStore.getState().bumpRevision(),
 				});
 				useSyncStore.getState().bumpRevision();
+			}
+
+			// Best-effort learning-history maintenance (day-gated inside prune).
+			try {
+				await pruneLearningHistory(db);
+			} catch (error) {
+				void logErrorBestEffort(
+					"debug",
+					error,
+					"AppNavigator.syncOnForeground.pruneLearningHistory",
+				);
 			}
 		} catch (caught) {
 			if (db) {
@@ -271,6 +285,16 @@ export function AppNavigator() {
 						"AppNavigator.background.rescheduleNotifications",
 					);
 				});
+				const coachStatus = getCoachStatus();
+				if (coachStatus === "loaded" || coachStatus === "generating") {
+					void releaseModel().catch((error) => {
+						void logErrorBestEffort(
+							"debug",
+							error,
+							"AppNavigator.background.releaseModel",
+						);
+					});
+				}
 			}
 		});
 
@@ -335,6 +359,7 @@ export function AppNavigator() {
 					<Stack.Screen name="SubjectSearch" component={SubjectSearchScreen} />
 					<Stack.Screen name="SubjectBrowse" component={SubjectBrowseScreen} />
 					<Stack.Screen name="BurnedItems" component={BurnedItemsScreen} />
+					<Stack.Screen name="WeakSpotClinic" component={WeakSpotClinicScreen} />
 					<Stack.Screen name="SubjectDetail" component={SubjectDetailScreen} />
 				</>
 			) : (

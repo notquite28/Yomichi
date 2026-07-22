@@ -432,6 +432,10 @@ export async function resetLocalData(db: AppDatabase) {
     'error_log',
     'subjects',
     'user',
+    'review_attempts',
+    'learning_interventions',
+    'learning_history_meta',
+    'coach_cache',
   ];
 
   await runInWriteTransaction(db, async () => {

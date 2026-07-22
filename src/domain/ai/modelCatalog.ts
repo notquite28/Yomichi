@@ -32,7 +32,11 @@ export const COACH_MAX_TOKENS: Record<CoachAction, number> = {
   examples: 280,
   unpack_context: 240,
   why_wrong: 180,
+  mistake_lens: 160,
+  study_summary: 220,
 };
+
+export const COACH_PROMPT_VERSION = 'v2-structured-1';
 
 export const COACH_TEMPERATURE = 0.55;
 

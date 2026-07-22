@@ -18,6 +18,13 @@ import {
   stopGeneration,
 } from './llamaRuntime';
 import { buildCoachMessages, buildPromptHash } from './prompts';
+import {
+  parseJsonObject,
+  renderMistakeLensText,
+  renderStudySummaryText,
+  validateMistakeLensPayload,
+  validateStudySummaryPayload,
+} from './structuredOutput';
 import { clearCoachCache, getCachedCoachResponse, putCachedCoachResponse } from './coachCache';
 import type {
   CoachGenerationInput,
@@ -243,7 +250,8 @@ export async function runCoachAction(input: CoachGenerationInput): Promise<Coach
     throw new Error('Wait for the model download to finish before generating.');
   }
 
-  const subjectId = input.subject.id;
+  const isGlobalSummary = input.action === 'study_summary';
+  const subjectId = isGlobalSummary ? 0 : input.subject?.id;
   if (subjectId == null) {
     throw new Error('Subject is missing an id; cannot run Study Coach.');
   }
@@ -256,15 +264,31 @@ export async function runCoachAction(input: CoachGenerationInput): Promise<Coach
     taskType: input.taskType,
     userAnswer: input.userAnswer,
     contextSentenceIndex: input.contextSentenceIndex,
+    evidence: input.evidence,
   };
   const promptHash = buildPromptHash(promptInput);
   const messages = buildCoachMessages(promptInput);
+  const allowedFactRefs = new Set(input.evidence?.factRefAllowlist ?? []);
 
   if (!input.regenerate) {
     try {
       const db = await openAppDatabase();
       const cached = await getCachedCoachResponse(db, subjectId, input.action, promptHash);
       if (cached) {
+        if (input.action === 'mistake_lens') {
+          const raw = parseJsonObject(cached);
+          const structured = validateMistakeLensPayload(raw, allowedFactRefs);
+          const text = renderMistakeLensText(structured);
+          input.onToken?.(text);
+          return { text, fromCache: true, structured };
+        }
+        if (input.action === 'study_summary') {
+          const raw = parseJsonObject(cached);
+          const structured = validateStudySummaryPayload(raw, allowedFactRefs);
+          const text = renderStudySummaryText(structured);
+          input.onToken?.(text);
+          return { text, fromCache: true, structured };
+        }
         input.onToken?.(cached);
         return { text: cached, fromCache: true };
       }
@@ -310,13 +334,36 @@ export async function runCoachAction(input: CoachGenerationInput): Promise<Coach
       throw new Error('Study Coach returned an empty response.');
     }
 
+    let resultText = trimmed;
+    let structured: CoachGenerationResult['structured'];
+    let cacheBody = trimmed;
+
+    if (input.action === 'mistake_lens' || input.action === 'study_summary') {
+      try {
+        const raw = parseJsonObject(trimmed);
+        if (input.action === 'mistake_lens') {
+          const payload = validateMistakeLensPayload(raw, allowedFactRefs);
+          structured = payload;
+          resultText = renderMistakeLensText(payload);
+          cacheBody = JSON.stringify(payload);
+        } else {
+          const payload = validateStudySummaryPayload(raw, allowedFactRefs);
+          structured = payload;
+          resultText = renderStudySummaryText(payload);
+          cacheBody = JSON.stringify(payload);
+        }
+      } catch {
+        throw new Error('Study Coach returned invalid structured output.');
+      }
+    }
+
     try {
       const db = await openAppDatabase();
       await putCachedCoachResponse(db, {
         subjectId,
         action: input.action,
         promptHash,
-        response: trimmed,
+        response: cacheBody,
         createdAt: new Date().toISOString(),
       });
     } catch (error) {
@@ -324,7 +371,7 @@ export async function runCoachAction(input: CoachGenerationInput): Promise<Coach
     }
 
     setStatus('loaded');
-    return { text: trimmed, fromCache: false };
+    return { text: resultText, fromCache: false, structured };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (/cancel/i.test(message)) {

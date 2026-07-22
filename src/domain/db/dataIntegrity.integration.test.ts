@@ -70,6 +70,11 @@ describe('schema migrations', () => {
     expect(tableNames).toContain('pending_progress');
     expect(tableNames).toContain('pending_study_materials');
     expect(tableNames).toContain('error_log');
+    expect(tableNames).toContain('coach_cache');
+    expect(tableNames).toContain('review_attempts');
+    expect(tableNames).toContain('learning_interventions');
+    expect(tableNames).toContain('learning_history_meta');
+
 
     // Check indexes
     const indexes = await db.getAllAsync<{ name: string }>(
@@ -90,7 +95,7 @@ describe('schema migrations', () => {
     await applyMigrations(db); // second application
 
     const migrations = await db.getAllAsync<{ version: number }>('SELECT version FROM schema_migrations');
-    expect(migrations.map((migration) => migration.version).sort()).toEqual([1, 2]);
+    expect(migrations.map((migration) => migration.version).sort()).toEqual([1, 2, 3, 4]);
 
     await db.closeAsync();
   });

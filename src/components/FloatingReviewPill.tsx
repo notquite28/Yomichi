@@ -220,8 +220,8 @@ export function FloatingReviewPill({
                 )}
                 {showExplainMistake && onExplainMistake ? (
                   <AnimatedIconButton
-                    icon="help-circle"
-                    label="Why was this wrong?"
+                    icon="sparkles"
+                    label="AI: Explain this mistake"
                     onPress={onExplainMistake}
                     disabled={disabled}
                     effectivePillBg={effectivePillBg}

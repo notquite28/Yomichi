@@ -17,6 +17,7 @@ import {
   setSyncCursor,
   snapshotSubjectProgress,
 } from '../db/database';
+import { pruneOrphanLearningHistory } from '../study/reviewAttempts';
 import { findBySubjectId, putStudyMaterialResource } from '../db/studyMaterialRepository';
 import { classifySyncError, logSyncError, SyncErrorCategory } from '../db/errorLog';
 
@@ -354,6 +355,7 @@ export async function runFullRefresh(options: SyncOptions): Promise<void> {
     await clearRemoteCache(fanout.db);
     await runDownloadSync(fanout);
     await restoreSubjectProgress(fanout.db, progressSnapshot);
+    await pruneOrphanLearningHistory(fanout.db);
   });
 }
 

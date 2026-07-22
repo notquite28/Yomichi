@@ -244,6 +244,81 @@ export async function getBurnedItemPracticeQueue(
   return rows.map(rowToStudyQueueItem).filter(hasPrompt);
 }
 
+export async function getPracticeQueueBySubjectIds(
+  db: AppDatabase,
+  subjectIds: number[],
+  limit = 20,
+): Promise<StudyQueueItem[]> {
+  const orderedUnique: number[] = [];
+  const seen = new Set<number>();
+  for (const id of subjectIds) {
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    orderedUnique.push(id);
+  }
+  if (orderedUnique.length === 0) {
+    return [];
+  }
+
+  const bySubject = new Map<number, StudyQueueItem>();
+  const CHUNK_SIZE = 500;
+  for (let offset = 0; offset < orderedUnique.length; offset += CHUNK_SIZE) {
+    const chunk = orderedUnique.slice(offset, offset + CHUNK_SIZE);
+    const placeholders = chunk.map(() => '?').join(',');
+    const rows = await db.getAllAsync<StudyQueueRow>(
+      `SELECT
+         a.id AS assignment_id,
+         a.subject_id,
+         a.subject_type,
+         a.level,
+         a.srs_stage,
+         a.available_at,
+         a.payload AS assignment_payload,
+         s.payload AS subject_payload,
+         sm.payload AS study_material_payload
+       FROM assignments a
+       INNER JOIN subjects s ON s.id = a.subject_id
+       LEFT JOIN study_materials sm ON sm.subject_id = a.subject_id
+       WHERE a.subject_id IN (${placeholders})
+       ORDER BY a.srs_stage DESC, a.id ASC`,
+      ...chunk,
+    );
+
+    for (const row of rows) {
+      if (bySubject.has(row.subject_id)) {
+        continue;
+      }
+      const item = rowToStudyQueueItem(row);
+      if (hasPrompt(item)) {
+        bySubject.set(row.subject_id, item);
+      }
+    }
+  }
+
+  // Repeat the ordered pair so practice sessions have enough tasks.
+  const base = orderedUnique
+    .map((id) => bySubject.get(id))
+    .filter((item): item is StudyQueueItem => item != null);
+  if (base.length === 0) {
+    return [];
+  }
+  const repeated: StudyQueueItem[] = [];
+  while (repeated.length < Math.min(limit, Math.max(base.length * 2, base.length))) {
+    for (const item of base) {
+      repeated.push(item);
+      if (repeated.length >= limit) {
+        break;
+      }
+    }
+    if (base.length === 0) {
+      break;
+    }
+  }
+  return repeated;
+}
+
 async function loadStudyQueueItemsByAssignmentIds(
   db: AppDatabase,
   assignmentIds: number[],

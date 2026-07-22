@@ -2,10 +2,12 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
-import { AnswerCheckResult, checkAnswer, classifyAnswerResult, TaskType, SubjectAnswerData } from '../domain/answers/answerChecker';
+import { AnswerCheckResult, checkAnswer, classifyAnswerResult, normalizeAnswer, TaskType, SubjectAnswerData } from '../domain/answers/answerChecker';
 import { convertRomajiToKanaInput } from '../domain/answers/kanaInput';
 import { correctAnswerText, feedbackTitle } from '../domain/answers/feedbackMessages';
 import { openAppDatabase } from '../domain/db/database';
+import { logErrorBestEffort } from '../domain/db/errorLog';
+import { recordAttempt } from '../domain/study/reviewAttempts';
 import { AppSettings } from '../domain/settings/settings';
 import { useSettingsStore } from '../domain/settings/settingsStore';
 import {
@@ -68,6 +70,8 @@ export function LessonSessionScreen({ navigation, route }: Props) {
   const [isContinuing, setIsContinuing] = useState(false);
 
   const sessionRef = useRef<ReviewSession | null>(null);
+  const sessionIdRef = useRef<number>(Date.now());
+  const lastAttemptIdRef = useRef<number | null>(null);
   const lessonStartAttemptRef = useRef<LessonStartAttempt | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -158,6 +162,8 @@ export function LessonSessionScreen({ navigation, route }: Props) {
 
 
   const startQuiz = () => {
+    sessionIdRef.current = Date.now();
+    lastAttemptIdRef.current = null;
     const session = new ReviewSession(activeBatch, reviewSettings, true);
     sessionRef.current = session;
     session.nextTask();
@@ -210,16 +216,42 @@ export function LessonSessionScreen({ navigation, route }: Props) {
     const correct = outcome === 'correct';
     clearGuidance();
     const markResult = session.markAnswer(correct);
+    const answeredTaskType = taskType ?? 'meaning';
     setFeedback({
       correct,
       message: feedbackTitle(result),
       detail: correct
         ? 'Continue to the next prompt.'
-        : correctAnswerText(currentItem, taskType ?? 'meaning'),
+        : correctAnswerText(currentItem, answeredTaskType),
       item: currentItem,
-      taskType: taskType ?? 'meaning',
+      taskType: answeredTaskType,
       subjectFinished: markResult.subjectFinished,
     });
+
+    const sessionId = sessionIdRef.current;
+    const subjectId = currentItem.subjectId;
+    const assignmentId = currentItem.assignmentId;
+    const srsStageBefore = currentItem.srsStage;
+    const resultKind = result.kind;
+    void (async () => {
+      try {
+        const db = await openAppDatabase();
+        const id = await recordAttempt(db, {
+          sessionId,
+          subjectId,
+          assignmentId,
+          source: 'lesson',
+          taskType: answeredTaskType,
+          normalizedAnswer: correct ? null : normalizeAnswer(answer, answeredTaskType),
+          resultKind,
+          scoredCorrect: correct,
+          srsStageBefore,
+        });
+        lastAttemptIdRef.current = id;
+      } catch (error) {
+        void logErrorBestEffort('warn', error, 'LessonSessionScreen.recordAttempt');
+      }
+    })();
     if (markResult.subjectFinished) {
       const finished = session.completedItems[session.completedItems.length - 1];
       if (finished) {
@@ -264,6 +296,7 @@ export function LessonSessionScreen({ navigation, route }: Props) {
       setError(null);
       setFeedback(null);
       setAnswer('');
+      lastAttemptIdRef.current = null;
       clearGuidance();
       session.nextTask();
     } catch (caught) {

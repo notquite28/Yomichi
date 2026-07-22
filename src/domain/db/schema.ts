@@ -173,4 +173,59 @@ export const migrations: Migration[] = [
         ON coach_cache(subject_id);
     `,
   },
+  {
+    version: 4,
+    sql: `
+      CREATE TABLE IF NOT EXISTS review_attempts (
+        id INTEGER PRIMARY KEY,
+        session_id INTEGER NOT NULL,
+        subject_id INTEGER NOT NULL,
+        assignment_id INTEGER,
+        source TEXT NOT NULL,
+        task_type TEXT NOT NULL,
+        normalized_answer TEXT,
+        result_kind TEXT NOT NULL,
+        scored_correct INTEGER NOT NULL,
+        overridden INTEGER NOT NULL DEFAULT 0,
+        occurred_at TEXT NOT NULL,
+        srs_stage_before INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS review_attempts_subject_task_time_idx
+        ON review_attempts(subject_id, task_type, occurred_at DESC);
+
+      CREATE INDEX IF NOT EXISTS review_attempts_wrong_answer_time_idx
+        ON review_attempts(normalized_answer, task_type, occurred_at DESC)
+        WHERE scored_correct = 0 AND normalized_answer IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS review_attempts_session_idx
+        ON review_attempts(session_id, occurred_at DESC);
+
+      CREATE TABLE IF NOT EXISTS learning_interventions (
+        id INTEGER PRIMARY KEY,
+        kind TEXT NOT NULL,
+        subject_ids_json TEXT NOT NULL,
+        evidence_hash TEXT NOT NULL,
+        model_version TEXT,
+        prompt_version TEXT,
+        state TEXT NOT NULL,
+        helpful INTEGER,
+        offered_at TEXT NOT NULL,
+        shown_at TEXT,
+        resolved_at TEXT,
+        payload_json TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS learning_interventions_kind_time_idx
+        ON learning_interventions(kind, offered_at DESC);
+
+      CREATE INDEX IF NOT EXISTS learning_interventions_evidence_idx
+        ON learning_interventions(evidence_hash, offered_at DESC);
+
+      CREATE TABLE IF NOT EXISTS learning_history_meta (
+        key TEXT PRIMARY KEY NOT NULL,
+        value TEXT NOT NULL
+      );
+    `,
+  },
 ];

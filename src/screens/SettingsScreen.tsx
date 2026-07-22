@@ -18,6 +18,8 @@ import {
 	type VoiceActorOption,
 } from "../domain/audio/vocabularyAudio";
 import { openAppDatabase, resetLocalData } from "../domain/db/database";
+import { clearLearningHistory } from "../domain/study/reviewAttempts";
+import { useLearningHistoryStore } from "../domain/study/learningHistoryStore";
 import { logErrorBestEffort } from "../domain/db/errorLog";
 import {
 	clearReviewNotifications,
@@ -223,6 +225,35 @@ export function SettingsScreen({ navigation, onLoggedOut }: Props) {
 			[
 				{ text: "Cancel", style: "cancel" },
 				{ text: "Log Out", style: "destructive", onPress: performLogout },
+			],
+		);
+	};
+
+	const confirmClearLearningHistory = () => {
+		Alert.alert(
+			"Clear learning history?",
+			"This removes your local 90-day attempt log and intervention history. Personalized recurrence tips will reset until new evidence is collected. Study Coach model files are not deleted.",
+			[
+				{ text: "Cancel", style: "cancel" },
+				{
+					text: "Clear",
+					style: "destructive",
+					onPress: () => {
+						void (async () => {
+							try {
+								const db = await openAppDatabase();
+								await clearLearningHistory(db);
+								useLearningHistoryStore.getState().bumpRevision();
+								Alert.alert("Learning history cleared");
+							} catch (caught) {
+								Alert.alert(
+									"Could not clear history",
+									caught instanceof Error ? caught.message : String(caught),
+								);
+							}
+						})();
+					},
+				},
 			],
 		);
 	};
@@ -734,6 +765,37 @@ export function SettingsScreen({ navigation, onLoggedOut }: Props) {
 						accessibilityLabel="Open Diagnostics"
 					>
 						<Text className="text-[14px] font-black text-text dark:text-text-dark">Open Diagnostics</Text>
+					</Pressable>
+				</View>
+
+				<View
+					className="rounded-[26px] p-[18px] bg-[#fffdf8] dark:bg-[#15141a] border border-[rgba(32,26,36,0.08)] dark:border-[rgba(255,255,255,0.08)] gap-[10px]"
+					style={{
+						shadowColor: "#000000",
+						shadowOpacity: theme.isDark ? 0.16 : 0.05,
+						shadowRadius: 18,
+						shadowOffset: { width: 0, height: 10 },
+						elevation: 4,
+					}}
+				>
+					<Text className="text-2xl font-black tracking-tight text-text dark:text-text-dark">
+						Learning History
+					</Text>
+					<Text className="text-base leading-[21px] font-bold text-text-muted dark:text-text-muted-dark">
+						Local 90-day attempt log and intervention outcomes power Mistake Lens and Weak-Spot Clinic. Clearing disables personalized recurrence until new evidence.
+					</Text>
+					<Pressable
+						onPress={confirmClearLearningHistory}
+						className="min-h-[44px] items-center justify-center rounded bg-surface dark:bg-surface-dark border border-border dark:border-border-dark"
+						style={({ pressed }) =>
+							pressed ? { opacity: 0.72, transform: [{ scale: 0.99 }] } : undefined
+						}
+						accessibilityRole="button"
+						accessibilityLabel="Clear learning history"
+					>
+						<Text className="text-[14px] font-black text-text dark:text-text-dark">
+							Clear learning history
+						</Text>
 					</Pressable>
 				</View>
 

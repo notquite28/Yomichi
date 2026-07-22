@@ -3,7 +3,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
-import { checkAnswer, classifyAnswerResult, TaskType } from '../domain/answers/answerChecker';
+import { checkAnswer, classifyAnswerResult, normalizeAnswer, TaskType } from '../domain/answers/answerChecker';
 import { correctAnswerText, feedbackTitle } from '../domain/answers/feedbackMessages';
 import { convertRomajiToKanaInput } from '../domain/answers/kanaInput';
 import { playVocabularyAudio, stopVocabularyAudio } from '../domain/audio/vocabularyAudio';
@@ -19,10 +19,29 @@ import {
 } from '../domain/study/reviewSession';
 import { findBySubjectId } from '../domain/db/studyMaterialRepository';
 import { getSubjectsByIds } from '../domain/db/subjectRepository';
-import { getBurnedItemPracticeQueue, getLeechPracticeQueue, getRecentMistakePracticeQueue, getReviewQueue, queueReviewResult, queueStudyMaterialUpdate, StudyQueueItem } from '../domain/study/studyRepository';
+import {
+  discardAttempt,
+  markAttemptOverridden,
+  pruneLearningHistory,
+  recordAttempt,
+  type AttemptSource,
+} from '../domain/study/reviewAttempts';
+import {
+  buildDeterministicCard,
+  evaluateInterventionOffer,
+  loadSubjectsForOffer,
+  type DeterministicCardModel,
+  type InterventionOffer,
+} from '../domain/study/learningEvidence';
+import {
+  insertIntervention,
+  updateInterventionState,
+} from '../domain/study/learningInterventions';
+import { getBurnedItemPracticeQueue, getLeechPracticeQueue, getPracticeQueueBySubjectIds, getRecentMistakePracticeQueue, getReviewQueue, queueReviewResult, queueStudyMaterialUpdate, StudyQueueItem } from '../domain/study/studyRepository';
 import { CenteredMessage, ScreenLayout, SessionHeader } from '../components/ScreenLayout';
 import { FloatingReviewPill } from '../components/FloatingReviewPill';
 import { CoachMistakeCard } from '../components/coach/CoachMistakeCard';
+import { MistakeLensCard } from '../components/coach/MistakeLensCard';
 import { cancelGeneration, runCoachAction } from '../domain/ai/coachService';
 import { useCoachStore } from '../domain/ai/coachStore';
 import { useConfirmLeave } from '../hooks/useConfirmLeave';
@@ -47,7 +66,12 @@ type Feedback = {
 
 type PracticeSource = NonNullable<RootStackParamList['ReviewSession']>['practiceSource'];
 
-function getQueueForSource(db: Awaited<ReturnType<typeof openAppDatabase>>, source: PracticeSource, settings: AppSettings) {
+function getQueueForSource(
+  db: Awaited<ReturnType<typeof openAppDatabase>>,
+  source: PracticeSource,
+  settings: AppSettings,
+  subjectIds?: number[],
+) {
   if (source === 'recentMistakes') {
     return getRecentMistakePracticeQueue(db);
   }
@@ -66,6 +90,9 @@ function getQueueForSource(db: Awaited<ReturnType<typeof openAppDatabase>>, sour
       includeVocabulary: settings.burnedPracticeIncludeVocabulary,
     });
   }
+  if (source === 'subjectIds') {
+    return getPracticeQueueBySubjectIds(db, subjectIds ?? []);
+  }
   return getReviewQueue(db);
 }
 
@@ -82,7 +109,16 @@ function emptyStateLabel(source: PracticeSource) {
   if (source === 'burnedItems') {
     return 'No burned items are available for practice.';
   }
+  if (source === 'subjectIds') {
+    return 'No subjects available for pair practice.';
+  }
   return 'No reviews are available in the local cache.';
+}
+
+function attemptSource(practiceSource: PracticeSource | undefined): AttemptSource {
+  if (practiceSource === 'subjectIds') return 'practice_pair';
+  if (practiceSource) return 'practice';
+  return 'review';
 }
 
 export function ReviewSessionScreen({ navigation, route }: Props) {
@@ -105,6 +141,13 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
   const [mistakeCoachText, setMistakeCoachText] = useState('');
   const [mistakeCoachError, setMistakeCoachError] = useState<string | null>(null);
   const [mistakeCoachRunning, setMistakeCoachRunning] = useState(false);
+  const [lensCard, setLensCard] = useState<DeterministicCardModel | null>(null);
+  const [lensInterventionId, setLensInterventionId] = useState<number | null>(null);
+  const [lensGeneratedText, setLensGeneratedText] = useState('');
+  const [lensError, setLensError] = useState<string | null>(null);
+  const [lensRunning, setLensRunning] = useState(false);
+  const offeredSubjectTasksRef = useRef<Set<string>>(new Set());
+  const lastOfferRef = useRef<InterventionOffer | null>(null);
   const studyCoachEnabled = appSettings.studyCoachEnabled;
   const coachStatus = useCoachStore((s) => s.status);
   const { guidanceMessage, showGuidance, clearGuidance } = useGuidanceMessage();
@@ -115,6 +158,10 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
   } | null>(null);
 
   const sessionRef = useRef<ReviewSession | null>(null);
+  const sessionIdRef = useRef<number>(Date.now());
+  const lastAttemptIdRef = useRef<number | null>(null);
+  const pendingAttemptIdRef = useRef<Promise<number | null> | null>(null);
+  const feedbackRevisionRef = useRef(0);
   const scrollViewRef = useRef<ScrollView>(null);
   const audioTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const practiceSource = route.params?.practiceSource;
@@ -144,7 +191,7 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
         const db = await openAppDatabase();
         const currentSettings = useSettingsStore.getState();
         const [items, userRow] = await Promise.all([
-          getQueueForSource(db, practiceSource, currentSettings),
+          getQueueForSource(db, practiceSource, currentSettings, route.params?.subjectIds),
           db.getFirstAsync<{ level: number }>('SELECT level FROM user WHERE id = 1'),
         ]);
         if (!isMounted) return;
@@ -163,7 +210,7 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
     return () => {
       isMounted = false;
     };
-  }, [practiceSource]);
+  }, [practiceSource, route.params?.subjectIds]);
 
   useEffect(() => {
     if (queueItems.length === 0 || sessionRef.current) {
@@ -177,6 +224,9 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
       }
     }
 
+    sessionIdRef.current = Date.now();
+    lastAttemptIdRef.current = null;
+    pendingAttemptIdRef.current = null;
     const session = new ReviewSession(queueItems, settings, Boolean(practiceSource), availableAtMap, userLevel);
     sessionRef.current = session;
     session.nextTask();
@@ -184,10 +234,19 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
   }, [practiceSource, queueItems, settings, userLevel]);
 
   useEffect(() => () => {
+    feedbackRevisionRef.current += 1;
     cancelGeneration();
     stopVocabularyAudio().catch((error) => {
       void logErrorBestEffort('debug', error, 'ReviewSessionScreen.unmount.stopVocabularyAudio');
     });
+  }, []);
+
+  useEffect(() => () => {
+    void openAppDatabase()
+      .then((db) => pruneLearningHistory(db))
+      .catch((error) => {
+        void logErrorBestEffort('debug', error, 'ReviewSessionScreen.pruneLearningHistory');
+      });
   }, []);
 
   useEffect(() => () => {
@@ -387,6 +446,86 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
     });
     maybeAutoplayAudio(currentItem, answeredTaskType, correct);
     setRevision((r) => r + 1);
+
+    const sessionId = sessionIdRef.current;
+    const subjectId = currentItem.subjectId;
+    const assignmentId = currentItem.assignmentId;
+    const srsStageBefore = currentItem.srsStage;
+    const resultKind = result.kind;
+    const feedbackRevision = ++feedbackRevisionRef.current;
+    const persistence = (async () => {
+      const db = await openAppDatabase();
+      const normalizedWrong = correct ? null : normalizeAnswer(answer, answeredTaskType);
+      const id = await recordAttempt(db, {
+        sessionId,
+        subjectId,
+        assignmentId,
+        source: attemptSource(practiceSource),
+        taskType: answeredTaskType,
+        normalizedAnswer: normalizedWrong,
+        resultKind,
+        scoredCorrect: correct,
+        srsStageBefore,
+      });
+      return { db, id, normalizedWrong };
+    })();
+    pendingAttemptIdRef.current = persistence.then(
+      ({ id }) => id,
+      () => null,
+    );
+
+    void (async () => {
+      try {
+        const { db, id, normalizedWrong } = await persistence;
+        if (feedbackRevisionRef.current !== feedbackRevision) {
+          return;
+        }
+        lastAttemptIdRef.current = id;
+
+        if (correct) {
+          return;
+        }
+        const offerKey = `${subjectId}:${answeredTaskType}`;
+        if (offeredSubjectTasksRef.current.has(offerKey)) {
+          return;
+        }
+        const offer = await evaluateInterventionOffer(db, {
+          subjectId,
+          taskType: answeredTaskType,
+          wrongAnswer: normalizedWrong,
+          justMissed: true,
+        });
+        if (!offer || feedbackRevisionRef.current !== feedbackRevision) {
+          return;
+        }
+        const subjects = await loadSubjectsForOffer(db, offer);
+        if (feedbackRevisionRef.current !== feedbackRevision) {
+          return;
+        }
+        const card = buildDeterministicCard(offer, subjects);
+        const interventionId = await insertIntervention(db, {
+          kind: offer.type === 'confusion_pair' ? 'confusion_pair' : 'mistake_lens',
+          subjectIds:
+            offer.type === 'confusion_pair'
+              ? [offer.evidence.subjectId, ...offer.evidence.matches.map((m) => m.otherSubjectId)]
+              : [offer.evidence.subjectId],
+          evidenceHash: offer.evidenceHash,
+          state: 'offered',
+          payloadJson: JSON.stringify(card),
+        });
+        if (feedbackRevisionRef.current !== feedbackRevision) {
+          return;
+        }
+        offeredSubjectTasksRef.current.add(offerKey);
+        lastOfferRef.current = offer;
+        setLensInterventionId(interventionId);
+        setLensCard(card);
+        setLensGeneratedText('');
+        setLensError(null);
+      } catch (error) {
+        void logErrorBestEffort('warn', error, 'ReviewSessionScreen.recordAttempt');
+      }
+    })();
   };
 
   const handleAnkiMark = (correct: boolean) => {
@@ -410,6 +549,36 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
     maybeAutoplayAudio(currentItem, answeredTaskType, correct);
     setAnkiRevealed(false);
     setRevision((r) => r + 1);
+
+    const sessionId = sessionIdRef.current;
+    const subjectId = currentItem.subjectId;
+    const assignmentId = currentItem.assignmentId;
+    const srsStageBefore = currentItem.srsStage;
+    const feedbackRevision = ++feedbackRevisionRef.current;
+    const persistence = (async () => {
+      const db = await openAppDatabase();
+      return recordAttempt(db, {
+        sessionId,
+        subjectId,
+        assignmentId,
+        source: attemptSource(practiceSource),
+        taskType: answeredTaskType,
+        normalizedAnswer: null,
+        resultKind: correct ? 'anki_correct' : 'anki_incorrect',
+        scoredCorrect: correct,
+        srsStageBefore,
+      });
+    })();
+    pendingAttemptIdRef.current = persistence.catch(() => null);
+    void persistence
+      .then((id) => {
+        if (feedbackRevisionRef.current === feedbackRevision) {
+          lastAttemptIdRef.current = id;
+        }
+      })
+      .catch((error) => {
+        void logErrorBestEffort('warn', error, 'ReviewSessionScreen.recordAnkiAttempt');
+      });
   };
 
   const changeAnswer = (text: string) => {
@@ -423,6 +592,7 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
     }
 
     setIsContinuing(true);
+    feedbackRevisionRef.current += 1;
     setError(null);
 
     try {
@@ -435,9 +605,17 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
       setMistakeCoachText('');
       setMistakeCoachError(null);
       setMistakeCoachRunning(false);
+      setLensCard(null);
+      setLensInterventionId(null);
+      setLensGeneratedText('');
+      setLensError(null);
+      setLensRunning(false);
+      lastOfferRef.current = null;
       setFeedback(null);
       setAnswer('');
       setLastMarkResult(null);
+      lastAttemptIdRef.current = null;
+      pendingAttemptIdRef.current = null;
       setAnkiRevealed(false);
       setAudioMessage(null);
       session.nextTask();
@@ -454,11 +632,32 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
       return;
     }
 
+    feedbackRevisionRef.current += 1;
+    const attemptIdPromise = pendingAttemptIdRef.current;
     cancelGeneration();
     setMistakeCoachText('');
     setMistakeCoachError(null);
     setMistakeCoachRunning(false);
+    setLensCard(null);
+    setLensInterventionId(null);
+    setLensGeneratedText('');
+    setLensError(null);
+    setLensRunning(false);
+    lastOfferRef.current = null;
     const result = session.overrideCorrect();
+    if (attemptIdPromise) {
+      void attemptIdPromise.then(async (attemptId) => {
+        if (attemptId == null) {
+          return;
+        }
+        try {
+          const db = await openAppDatabase();
+          await markAttemptOverridden(db, attemptId);
+        } catch (error) {
+          void logErrorBestEffort('warn', error, 'ReviewSessionScreen.markAttemptOverridden');
+        }
+      });
+    }
     setLastMarkResult(result);
     setFeedback({
       ...feedback,
@@ -476,6 +675,8 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
     }
 
     setIsContinuing(true);
+    feedbackRevisionRef.current += 1;
+    const attemptIdPromise = pendingAttemptIdRef.current;
     setError(null);
 
     try {
@@ -483,7 +684,20 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
       setMistakeCoachText('');
       setMistakeCoachError(null);
       setMistakeCoachRunning(false);
+      setLensCard(null);
+      setLensInterventionId(null);
+      setLensGeneratedText('');
+      setLensError(null);
+      setLensRunning(false);
+      lastOfferRef.current = null;
       session.moveActiveTaskToEnd();
+      const attemptId = await attemptIdPromise;
+      if (attemptId != null) {
+        const db = await openAppDatabase();
+        await discardAttempt(db, attemptId);
+      }
+      lastAttemptIdRef.current = null;
+      pendingAttemptIdRef.current = null;
       setFeedback(null);
       setAnswer('');
       setLastMarkResult(null);
@@ -507,6 +721,8 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
     }
 
     setIsContinuing(true);
+    feedbackRevisionRef.current += 1;
+    const attemptIdPromise = pendingAttemptIdRef.current;
     setError(null);
 
     try {
@@ -517,6 +733,11 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
       const item = feedback.item;
       const synonym = answer.trim();
       const result = session.addSynonym(synonym);
+      const attemptId = await attemptIdPromise;
+      if (attemptId != null) {
+        const db = await openAppDatabase();
+        await markAttemptOverridden(db, attemptId);
+      }
       setLastMarkResult(result);
       setFeedback({
         ...feedback,
@@ -605,6 +826,126 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
       }
     } finally {
       setMistakeCoachRunning(false);
+    }
+  };
+
+  const handleLensGenerate = async () => {
+    if (!lensCard || !feedback || lensRunning) {
+      return;
+    }
+    const offer = lastOfferRef.current;
+    setLensRunning(true);
+    setLensError(null);
+    setLensGeneratedText('');
+    if (lensInterventionId != null) {
+      void openAppDatabase()
+        .then((db) => updateInterventionState(db, lensInterventionId, 'generating'))
+        .catch((error) => {
+          void logErrorBestEffort('warn', error, 'ReviewSessionScreen.lensGenerating');
+        });
+    }
+    try {
+      const factRefs = [
+        'facts.entered_answer',
+        'facts.accepted_meanings',
+        'facts.accepted_readings',
+        'facts.miss_count',
+        'facts.recent_answers',
+        'facts.pair.other_japanese',
+        'facts.pair.other_primary_meaning',
+        'facts.pair.other_accepted_meanings',
+        'facts.pair.other_accepted_readings',
+        'facts.pair.wrong_answer',
+        'facts.pair.task_type',
+      ];
+      const pairSubject =
+        offer?.type === 'confusion_pair' && !offer.ambiguous && offer.evidence.matches[0]
+          ? (await openAppDatabase().then((db) =>
+              loadSubjectsForOffer(db, offer),
+            )).get(offer.evidence.matches[0]!.otherSubjectId)
+          : undefined;
+      const result = await runCoachAction({
+        action: 'mistake_lens',
+        subject: feedback.item.subject,
+        studyMaterial: subjectDetailData?.studyMaterial,
+        componentSubjects: subjectDetailData
+          ? [...subjectDetailData.componentSubjects.values()]
+          : undefined,
+        taskType: feedback.taskType,
+        userAnswer: answer,
+        evidence: {
+          missCount: lensCard.missCount,
+          recentAnswers: offer?.type === 'mistake_lens' ? offer.evidence.recentAnswers : undefined,
+          pair:
+            offer?.type === 'confusion_pair' && pairSubject
+              ? {
+                  otherSubject: pairSubject,
+                  wrongAnswer: offer.evidence.wrongAnswer,
+                  taskType: offer.evidence.taskType,
+                }
+              : undefined,
+          factRefAllowlist: factRefs,
+        },
+        onToken: (soFar) => setLensGeneratedText(soFar),
+      });
+      setLensGeneratedText(result.text);
+      if (lensInterventionId != null) {
+        void openAppDatabase()
+          .then((db) =>
+            updateInterventionState(db, lensInterventionId, 'shown', {
+              payloadJson: JSON.stringify({
+                card: lensCard,
+                structured: result.structured ?? null,
+                text: result.text,
+              }),
+            }),
+          )
+          .catch((error) => {
+            void logErrorBestEffort('warn', error, 'ReviewSessionScreen.lensShown');
+          });
+      }
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught);
+      if (!/cancel/i.test(message)) {
+        setLensError(message);
+        if (lensInterventionId != null) {
+          void openAppDatabase()
+            .then((db) => updateInterventionState(db, lensInterventionId, 'failed'))
+            .catch((error) => {
+              void logErrorBestEffort('warn', error, 'ReviewSessionScreen.lensFailed');
+            });
+        }
+      }
+    } finally {
+      setLensRunning(false);
+    }
+  };
+
+  const handleLensNotNow = () => {
+    if (lensInterventionId != null) {
+      void openAppDatabase()
+        .then((db) => updateInterventionState(db, lensInterventionId, 'skipped'))
+        .catch((error) => {
+          void logErrorBestEffort('warn', error, 'ReviewSessionScreen.lensSkipped');
+        });
+    }
+    setLensCard(null);
+    setLensInterventionId(null);
+    setLensGeneratedText('');
+    setLensError(null);
+    setLensRunning(false);
+    lastOfferRef.current = null;
+  };
+
+  const handleLensHelpful = (helpful: boolean) => {
+    if (lensInterventionId != null) {
+      void openAppDatabase()
+        .then((db) =>
+          updateInterventionState(db, lensInterventionId, 'shown', { helpful }),
+        )
+        .catch((error) => {
+          void logErrorBestEffort('warn', error, 'ReviewSessionScreen.lensHelpful');
+        });
     }
   };
 
@@ -781,6 +1122,39 @@ export function ReviewSessionScreen({ navigation, route }: Props) {
         >
           {guidanceMessage}
         </Text>
+      ) : null}
+
+      {lensCard && feedback && !feedback.correct ? (
+        <MistakeLensCard
+          card={lensCard}
+          generatedText={lensGeneratedText}
+          isRunning={lensRunning}
+          error={lensError}
+          canGenerate={Boolean(
+            studyCoachEnabled &&
+              (coachStatus === 'ready' ||
+                coachStatus === 'loaded' ||
+                coachStatus === 'loading' ||
+                coachStatus === 'generating' ||
+                coachStatus === 'error'),
+          )}
+          onGenerate={() => {
+            void handleLensGenerate();
+          }}
+          onNotNow={handleLensNotNow}
+          onHelpful={() => handleLensHelpful(true)}
+          onNotHelpful={() => handleLensHelpful(false)}
+          onPracticePair={
+            lensCard.otherSubjectId != null
+              ? () => {
+                  navigation.push('ReviewSession', {
+                    practiceSource: 'subjectIds',
+                    subjectIds: [lensCard.subjectId, lensCard.otherSubjectId!],
+                  });
+                }
+              : undefined
+          }
+        />
       ) : null}
 
       {(mistakeCoachText || mistakeCoachRunning || mistakeCoachError) && feedback && !feedback.correct ? (

@@ -124,6 +124,51 @@ describe('coachService', () => {
     expect(getCoachStatus()).toBe('loaded');
   });
 
+  test('runCoachAction validates mistake_lens JSON before cache', async () => {
+    mockGenerate.mockResolvedValueOnce(
+      JSON.stringify({
+        version: 1,
+        explanation: 'You mixed the pair.',
+        memoryCue: 'Remember dai vs tai.',
+        factRefs: ['facts.entered_answer'],
+      }),
+    );
+    const result = await runCoachAction({
+      action: 'mistake_lens',
+      subject,
+      evidence: { factRefAllowlist: ['facts.entered_answer'] },
+      regenerate: true,
+    });
+    expect(result.fromCache).toBe(false);
+    expect(result.structured).toMatchObject({ version: 1, memoryCue: 'Remember dai vs tai.' });
+    expect(result.text).toContain('Memory cue');
+    expect(mockPutCached).toHaveBeenCalled();
+  });
+
+  test('runCoachAction does not cache invalid structured output', async () => {
+    mockGenerate.mockResolvedValueOnce('not valid json for structured action');
+    await expect(
+      runCoachAction({
+        action: 'mistake_lens',
+        subject,
+        evidence: { factRefAllowlist: ['facts.entered_answer'] },
+        regenerate: true,
+      }),
+    ).rejects.toThrow(/invalid structured output/i);
+    expect(mockPutCached).not.toHaveBeenCalled();
+  });
+
+  test('free-form explain path still returns text', async () => {
+    mockGenerate.mockResolvedValueOnce('Plain explanation.');
+    const result = await runCoachAction({
+      action: 'explain',
+      subject,
+      regenerate: true,
+    });
+    expect(result.text).toBe('Plain explanation.');
+    expect(result.fromCache).toBe(false);
+  });
+
   test('runCoachAction rejects while downloading', async () => {
     mockIsDownloading.mockReturnValue(true);
     await expect(

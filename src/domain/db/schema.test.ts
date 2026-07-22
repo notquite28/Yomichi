@@ -117,6 +117,54 @@ describe('schema v1', () => {
   });
 });
 
+describe('schema v4', () => {
+  const v4 = migrations.find((m) => m.version === 4);
+  if (!v4) return;
+
+  const tables = extractTableNames(v4.sql);
+  const indexes = extractIndexNames(v4.sql);
+
+  const expectedTables = [
+    'review_attempts',
+    'learning_interventions',
+    'learning_history_meta',
+  ];
+
+  const expectedIndexes = [
+    'review_attempts_subject_task_time_idx',
+    'review_attempts_wrong_answer_time_idx',
+    'review_attempts_session_idx',
+    'learning_interventions_kind_time_idx',
+    'learning_interventions_evidence_idx',
+  ];
+
+  test('creates all expected tables', () => {
+    for (const table of expectedTables) {
+      expect(tables).toContain(table);
+    }
+  });
+
+  test('creates all expected indexes', () => {
+    for (const index of expectedIndexes) {
+      expect(indexes).toContain(index);
+    }
+  });
+
+  test('does not create unexpected tables', () => {
+    expect(tables.sort()).toEqual([...expectedTables].sort());
+  });
+
+  test('review_attempts has scored_correct and overridden columns', () => {
+    expect(v4.sql).toContain('scored_correct INTEGER NOT NULL');
+    expect(v4.sql).toContain('overridden INTEGER NOT NULL DEFAULT 0');
+  });
+
+  test('learning_history_meta is key/value', () => {
+    expect(v4.sql).toContain('key TEXT PRIMARY KEY NOT NULL');
+    expect(v4.sql).toContain('value TEXT NOT NULL');
+  });
+});
+
 describe('Migration type', () => {
   test('Migration type requires version and sql', () => {
     const m: Migration = { version: 1, sql: 'SELECT 1' };

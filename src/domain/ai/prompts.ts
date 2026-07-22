@@ -1,16 +1,27 @@
-import { COACH_SYSTEM_PROMPT } from './modelCatalog';
+import { COACH_PROMPT_VERSION, COACH_SYSTEM_PROMPT, TINYSWALLOW_MODEL } from './modelCatalog';
 import { stripMnemonicMarkup } from './mnemonicMarkup';
-import type { CoachAction, CoachChatMessage, CoachStudyMaterial } from './types';
+import type { CoachAction, CoachChatMessage, CoachStudyMaterial, StudySummaryFacts } from './types';
 import type { SubjectAnswerData } from '../answers/answerChecker';
 
 export type PromptBuildInput = {
   action: CoachAction;
-  subject: SubjectAnswerData;
+  subject?: SubjectAnswerData;
   studyMaterial?: CoachStudyMaterial;
   componentSubjects?: SubjectAnswerData[];
   taskType?: 'meaning' | 'reading';
   userAnswer?: string;
   contextSentenceIndex?: number;
+  evidence?: {
+    missCount?: number;
+    recentAnswers?: string[];
+    pair?: {
+      otherSubject: SubjectAnswerData;
+      wrongAnswer: string;
+      taskType: 'meaning' | 'reading';
+    };
+    summaryFacts?: StudySummaryFacts;
+    factRefAllowlist?: string[];
+  };
 };
 
 function acceptedMeanings(subject: SubjectAnswerData): string[] {
@@ -69,7 +80,71 @@ function isVocabularyLike(type: string): boolean {
 }
 
 export function buildSubjectContextBlock(input: PromptBuildInput): string {
-  const { subject, studyMaterial, componentSubjects } = input;
+  if (input.action === 'study_summary') {
+    const facts = input.evidence?.summaryFacts;
+    if (!facts) {
+      return 'No study summary facts provided.';
+    }
+    const lines = [
+      `facts.level = ${facts.level ?? 'unknown'}`,
+      `facts.available_lessons = ${facts.availableLessons}`,
+      `facts.available_reviews = ${facts.availableReviews}`,
+      `facts.review_forecast_24h = ${facts.reviewForecast24h}`,
+      `facts.srs.apprentice = ${facts.srs.apprentice}`,
+      `facts.srs.guru = ${facts.srs.guru}`,
+      `facts.srs.master = ${facts.srs.master}`,
+      `facts.srs.enlightened = ${facts.srs.enlightened}`,
+      `facts.srs.burned = ${facts.srs.burned}`,
+      `facts.recent_mistakes_count = ${facts.recentMistakes.length}`,
+      `facts.top_leeches_count = ${facts.topLeeches.length}`,
+    ];
+    if (facts.levelProgress) {
+      lines.push(
+        `facts.level_progress.radicals = ${facts.levelProgress.radicalsPassed}/${facts.levelProgress.radicalsTotal}`,
+        `facts.level_progress.kanji = ${facts.levelProgress.kanjiPassed}/${facts.levelProgress.kanjiTotal}`,
+      );
+    }
+    if (facts.recentWindow) {
+      lines.push(
+        `facts.recent_window.days = ${facts.recentWindow.days}`,
+        `facts.recent_window.scored_attempts = ${facts.recentWindow.scoredAttempts}`,
+        `facts.recent_window.correct = ${facts.recentWindow.correct}`,
+        `facts.recent_window.incorrect = ${facts.recentWindow.incorrect}`,
+      );
+    } else {
+      lines.push('facts.recent_window = none (do not claim improvement or decline)');
+    }
+    if (facts.recentMistakes.length > 0) {
+      lines.push(
+        'facts.recent_mistakes:',
+        ...facts.recentMistakes.map(
+          (item, index) =>
+            `  ${index + 1}. ${item.japanese || item.primaryMeaning} (id ${item.subjectId})`,
+        ),
+      );
+    }
+    if (facts.topLeeches.length > 0) {
+      lines.push(
+        'facts.top_leeches:',
+        ...facts.topLeeches.map(
+          (item, index) =>
+            `  ${index + 1}. ${item.japanese || item.primaryMeaning} score=${item.score}`,
+        ),
+      );
+    }
+    const allow = input.evidence?.factRefAllowlist ?? [];
+    if (allow.length > 0) {
+      lines.push(`Allowed factRefs: ${allow.join(', ')}`);
+    }
+    return lines.join('\n');
+  }
+
+  const subject = input.subject;
+  if (!subject) {
+    return 'No subject facts provided.';
+  }
+
+  const { studyMaterial, componentSubjects } = input;
   const primaryM = primaryMeanings(subject);
   const allM = acceptedMeanings(subject);
   const primaryR = primaryReadings(subject);
@@ -145,20 +220,44 @@ export function buildSubjectContextBlock(input: PromptBuildInput): string {
     }
   }
 
-  if (input.action === 'why_wrong') {
+  if (input.action === 'why_wrong' || input.action === 'mistake_lens') {
     const task = input.taskType ?? 'unknown';
     const typed = input.userAnswer?.trim() || '(empty)';
     lines.push(`Review task: ${task}`);
     lines.push(`What you typed: ${typed}`);
+    lines.push(`facts.entered_answer = ${typed}`);
+    lines.push(`facts.accepted_meanings = ${allM.join(', ') || '(none)'}`);
+    lines.push(`facts.accepted_readings = ${allR.join(', ') || '(none)'}`);
     if (task === 'meaning') {
       lines.push(`Correct accepted meaning answer(s): ${allM.join(', ') || '(none)'}`);
     } else if (task === 'reading') {
       lines.push(`Correct accepted reading answer(s): ${allR.join(', ') || '(none)'}`);
     }
+    if (input.evidence?.missCount != null) {
+      lines.push(`facts.miss_count = ${input.evidence.missCount}`);
+    }
+    if (input.evidence?.recentAnswers?.length) {
+      lines.push(`facts.recent_answers = ${input.evidence.recentAnswers.join(' | ')}`);
+    }
+    if (input.evidence?.pair) {
+      const other = input.evidence.pair.otherSubject;
+      const otherMeanings = acceptedMeanings(other).join(', ') || '(none)';
+      const otherReadings = acceptedReadings(other).join(', ') || '(none)';
+      lines.push(`facts.pair.other_japanese = ${other.japanese || '(none)'}`);
+      lines.push(`facts.pair.other_primary_meaning = ${primaryMeanings(other).join(', ') || otherMeanings}`);
+      lines.push(`facts.pair.other_accepted_meanings = ${otherMeanings}`);
+      lines.push(`facts.pair.other_accepted_readings = ${otherReadings}`);
+      lines.push(`facts.pair.wrong_answer = ${input.evidence.pair.wrongAnswer}`);
+      lines.push(`facts.pair.task_type = ${input.evidence.pair.taskType}`);
+    }
     if (isVocabularyLike(subject.type) && componentSubjects?.length && task === 'reading') {
       lines.push(
         'Note: for vocabulary, do not accept a reading made by gluing each kanji’s on/kun reading unless that exact string is in the accepted readings list. Whole-word readings often differ (jukujikun, irregular, or fixed kun compounds).',
       );
+    }
+    const allow = input.evidence?.factRefAllowlist ?? [];
+    if (allow.length > 0) {
+      lines.push(`Allowed factRefs: ${allow.join(', ')}`);
     }
   }
 
@@ -218,6 +317,27 @@ Rules:
 - For vocabulary readings, if they pieced together component readings, explain that the whole word has its own accepted reading from the list.
 - Stay faithful to the official meaning (e.g. do not redefine "fat" as "strong" unless that is an accepted meaning).`;
     }
+    case 'mistake_lens':
+      return `Return ONLY a single JSON object (no markdown fences, no prose outside JSON) with this exact shape:
+{"version":1,"explanation":"...","memoryCue":"...","factRefs":["facts.entered_answer",...]}
+
+Rules:
+- explanation: 2–4 short sentences, second person, about the repeated miss or confusion using ONLY provided facts.
+- memoryCue: one short personal memory tip (not an example sentence).
+- factRefs: only ids from Allowed factRefs in the facts block.
+- Do not invent accepted answers, Japanese example sentences, or subjects not listed.
+- No markdown. JSON only.`;
+    case 'study_summary':
+      return `Return ONLY a single JSON object (no markdown fences, no prose outside JSON) with this exact shape:
+{"version":1,"overview":"...","wins":["..."],"focus":["..."],"nextAction":"...","factRefs":["facts.available_reviews",...]}
+
+Rules:
+- overview: 2–4 short sentences, second person, grounded only in provided facts.
+- wins/focus: at most 5 short bullets each; empty arrays allowed.
+- nextAction: one concrete next step from the facts (reviews/lessons/practice).
+- Never claim improvement or decline unless both comparable windows are present in facts (v1 usually has only one window or none).
+- factRefs: only ids from Allowed factRefs.
+- No Japanese example sentences. No invented metrics. JSON only.`;
     default: {
       const _exhaustive: never = action;
       return _exhaustive;
@@ -249,6 +369,26 @@ export function hashPromptPayload(payload: string): string {
 
 export function buildPromptHash(input: PromptBuildInput): string {
   const messages = buildCoachMessages(input);
-  const payload = messages.map((m) => `${m.role}:${m.content}`).join('\n---\n');
+  const evidenceKey = input.evidence
+    ? JSON.stringify({
+        missCount: input.evidence.missCount ?? null,
+        recentAnswers: input.evidence.recentAnswers ?? [],
+        pair: input.evidence.pair
+          ? {
+              otherId: input.evidence.pair.otherSubject.id ?? null,
+              wrongAnswer: input.evidence.pair.wrongAnswer,
+              taskType: input.evidence.pair.taskType,
+            }
+          : null,
+        summaryFacts: input.evidence.summaryFacts ?? null,
+        factRefs: input.evidence.factRefAllowlist ?? [],
+      })
+    : '';
+  const payload = [
+    COACH_PROMPT_VERSION,
+    TINYSWALLOW_MODEL.modelId,
+    ...messages.map((m) => `${m.role}:${m.content}`),
+    evidenceKey,
+  ].join('\n---\n');
   return hashPromptPayload(payload);
 }

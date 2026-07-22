@@ -31,6 +31,7 @@ import { LevelProgressChart } from '../components/LevelProgressChart';
 import { ReviewForecastChart } from '../components/ReviewForecastChart';
 import { SrsBar } from '../components/SrsBar';
 import { TooltipPressable } from '../components/TooltipPressable';
+import { StudySummaryCard } from '../components/dashboard/StudySummaryCard';
 import { checkForUpdate, UpdateInfo } from '../domain/update/updateService';
 import { getDismissedUpdateVersion, setDismissedUpdateVersion } from '../domain/update/updateDismissal';
 import { RootStackParamList } from '../navigation/types';
@@ -430,6 +431,24 @@ export function DashboardScreen({ apiToken, navigation, onAuthError }: Props) {
             </Pressable>
           </Animated.View>
         ) : null}
+
+        <Animated.View style={entranceStyle}>
+          <StudySummaryCard syncRevision={storeSyncRevision} />
+        </Animated.View>
+
+        <Animated.View style={entranceStyle}>
+          <Pressable
+            onPress={() => navigation.navigate('WeakSpotClinic')}
+            className="min-h-[48px] items-center justify-center rounded-lg bg-[#f2eee8] dark:bg-[#201e26] border border-[rgba(32,26,36,0.06)] dark:border-[rgba(255,255,255,0.08)]"
+            style={({ pressed }) => pressed ? { opacity: 0.7, transform: [{ scale: 0.99 }] } : undefined}
+            accessibilityRole="button"
+            accessibilityLabel="Open Weak-Spot Clinic"
+          >
+            <Text className="text-text-muted dark:text-text-muted-dark text-[14px] font-black tracking-wider">
+              Weak-Spot Clinic
+            </Text>
+          </Pressable>
+        </Animated.View>
 
         {forecast.length > 0 ? (
           <View className="rounded-[26px] p-[18px] bg-[#fffdf8] dark:bg-[#15141a] border border-[rgba(32,26,36,0.08)] dark:border-[rgba(255,255,255,0.08)] gap-[14px]" style={panelShadow}>
