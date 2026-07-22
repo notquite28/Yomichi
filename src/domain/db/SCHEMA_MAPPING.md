@@ -184,7 +184,7 @@ iOS only stores the subject ID; the actual edit data is reconstructed from `stud
 | `schema_migrations` | Tracks applied migration versions |
 | `coach_cache` (migration v3) | Cached Study Coach responses keyed by `(subject_id, action, prompt_hash)`. Global actions such as `study_summary` use `subject_id = 0`. Cleared on logout and model delete; not part of remote sync. |
 | `review_attempts` (migration v4) | Local scored attempt history (review/lesson/practice sources, task type, normalized wrong answer, override/discard). No FK to subjects so rows survive temporary subject absence during full refresh. Pruned at 90 days / 50k rows. Cleared on logout; preserved through full refresh (orphans pruned after subjects re-download). |
-| `learning_interventions` (migration v4) | Offered Mistake Lens / confusion-pair / pair-practice / study-summary interventions with state, helpfulness, evidence hash, and optional validated payload. Retention 180 days. |
+| `learning_interventions` (migration v4) | Offered Mistake Lens / confusion-pair / pair-practice interventions with state, helpfulness, evidence hash, and optional validated payload. Retention 180 days. |
 | `learning_history_meta` (migration v4) | Key/value maintenance metadata (`last_maintenance_at`, `attempt_revision`). |
 
 ## Tables Present in iOS but Not RN

@@ -8,7 +8,6 @@ import {
   getReviewForecast,
 } from './dashboardRepository';
 import type { StudySummaryFacts } from '../ai/types';
-import { hashPromptPayload } from '../ai/prompts';
 
 export type { StudySummaryFacts };
 
@@ -192,6 +191,3 @@ export function studySummaryFactRefAllowlist(facts: StudySummaryFacts): Set<stri
   return refs;
 }
 
-export function hashStudySummaryFacts(facts: StudySummaryFacts): string {
-  return hashPromptPayload(JSON.stringify(facts));
-}

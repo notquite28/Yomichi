@@ -4,8 +4,7 @@ import { runInWriteTransaction } from '../db/database';
 export type InterventionKind =
   | 'mistake_lens'
   | 'confusion_pair'
-  | 'pair_practice'
-  | 'study_summary';
+  | 'pair_practice';
 
 export type InterventionState =
   | 'offered'
