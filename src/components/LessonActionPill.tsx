@@ -63,10 +63,10 @@ export function LessonActionPill({
       style={{ paddingBottom: bottomPadding }}
     >
       <AnimatedView layout={pillMotion()}>
-        {feedback && (
+        {feedback ? (
           <AnimatedView
+            key={feedback.correct ? 'feedback-correct-glow' : 'feedback-incorrect-glow'}
             entering={FadeIn.duration(250).springify().damping(20).stiffness(180)}
-            exiting={FadeOut.duration(180)}
             style={[
               styles.glow,
               {
@@ -78,7 +78,7 @@ export function LessonActionPill({
               },
             ]}
           />
-        )}
+        ) : null}
         <LiquidGlassView
           interactive
           effect={isDark ? 'regular' : 'clear'}
@@ -103,10 +103,12 @@ export function LessonActionPill({
             },
           ]}
         >
-          {feedback && (
+          {feedback ? (
             <AnimatedView
+              // Key forces a remount when outcome changes. Skip exiting so the
+              // previous Correct/Incorrect copy cannot FadeOut on top of the next.
+              key={`${feedback.correct ? 'ok' : 'ng'}\u0000${feedback.message}\u0000${feedback.detail}`}
               entering={FadeInDown.springify().damping(22).stiffness(200).mass(0.8)}
-              exiting={FadeOut.duration(120)}
               layout={controlMotion()}
               accessible
               accessibilityLiveRegion="polite"
@@ -126,7 +128,7 @@ export function LessonActionPill({
                 </Text>
               </ScrollView>
             </AnimatedView>
-          )}
+          ) : null}
           <AnimatedView className="flex-row items-center justify-center px-5 py-2.5" layout={controlMotion()}>
             <AnimatedView
               className="flex-1 items-center"
