@@ -69,14 +69,13 @@ react {
 def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBuilds') ?: false).toBoolean()
 
 /**
- * Ship one APK per ABI instead of a fat multi-ABI APK. Cuts download size
- * roughly by the unused architecture's native libs (llama.rn alone is ~70MB
- * of arm64-only prebuilts). GitHub Releases publish both APKs.
+ * Ship a single arm64-v8a APK. llama.rn's native libraries are arm64-only,
+ * so other ABIs cannot run Study Coach; building them only adds dead weight.
  */
 def enableSeparateBuildPerCPUArchitecture = true
 
 // ABI → versionCode offset so multi-APK installs stay ordered (Play / sideload).
-def abiVersionCodes = ["armeabi-v7a": 1, "arm64-v8a": 2, "x86": 3, "x86_64": 4]
+def abiVersionCodes = ["arm64-v8a": 2]
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -112,7 +111,7 @@ android {
             reset()
             enable enableSeparateBuildPerCPUArchitecture
             universalApk false
-            include "armeabi-v7a", "arm64-v8a"
+            include "arm64-v8a"
         }
     }
 

@@ -49,7 +49,7 @@ jobs:
             gradle-${{ runner.os }}-
 
       - name: Set Swap Space
-        uses: pierotofy/set-swap-space@master
+        uses: pierotofy/set-swap-space@fc79b3f67fa8a838184ce84a674ca12238d2c761
         with:
           swap-size-gb: 6
 
@@ -80,14 +80,13 @@ jobs:
           ./gradlew :app:assembleRelease
           OUT="$GITHUB_WORKSPACE/dist"
           mkdir -p "$OUT"
-          # ABI splits produce app-armeabi-v7a-release.apk and app-arm64-v8a-release.apk
-          cp app/build/outputs/apk/release/app-armeabi-v7a-release.apk "$OUT/yomiji-armeabi-v7a.apk"
+          # ABI splits produce a single app-arm64-v8a-release.apk
           cp app/build/outputs/apk/release/app-arm64-v8a-release.apk "$OUT/yomiji-arm64-v8a.apk"
           ls -lh "$OUT"
         env:
           CI_RELEASE_BUILD: "true"
           # Build only real-device ABIs; skip emulator-only x86/x86_64 to cut native compile time.
-          ORG_GRADLE_PROJECT_reactNativeArchitectures: "arm64-v8a,armeabi-v7a"
+          ORG_GRADLE_PROJECT_reactNativeArchitectures: "arm64-v8a"
           KEYSTORE_FILE: ${{ github.workspace }}/android/app/release.keystore
           KEYSTORE_PASSWORD: ${{ secrets.YOMIJI_KEYSTORE_PASSWORD }}
           KEY_ALIAS: yomiji
@@ -99,7 +98,7 @@ jobs:
           set -euo pipefail
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
           test -x "$APKSIGNER"
-          for apk in dist/yomiji-armeabi-v7a.apk dist/yomiji-arm64-v8a.apk; do
+          for apk in dist/yomiji-arm64-v8a.apk; do
             echo "Verifying $apk"
             "$APKSIGNER" verify --verbose --print-certs "$apk"
           done
@@ -111,18 +110,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/yomiji-armeabi-v7a.apk
-            dist/yomiji-arm64-v8a.apk
+          files: dist/yomiji-arm64-v8a.apk
           generate_release_notes: true
-          body: |
-            ## APKs
-
-            | File | Architecture | Devices |
-            | --- | --- | --- |
-            | `yomiji-arm64-v8a.apk` | 64-bit ARM | Almost all phones from ~2017+ (recommended) |
-            | `yomiji-armeabi-v7a.apk` | 32-bit ARM | Older / low-end devices only |
-
-            Prefer **arm64-v8a** unless your device is 32-bit-only. Study Coach (TinySwallow / llama.rn) is arm64-only.
+          body: "arm64-v8a APK. Requires a 64-bit ARM device (all phones from ~2017+)."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

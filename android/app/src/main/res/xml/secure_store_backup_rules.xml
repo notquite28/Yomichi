@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and lower. Overrides expo-secure-store's library resource of
+     the same name; preserves its SecureStore exclusion and adds app-specific
+     excludes for the 1.1 GB coach model and the SQLite database. -->
+<full-backup-content xmlns:tools="http://schemas.android.com/tools">
+  <include domain="sharedpref" path="."/>
+  <exclude domain="sharedpref" path="SecureStore"/>
+  <!-- Redundant while only sharedpref is included, but load-bearing if a
+       broader include is ever added. Lint flags cross-domain excludes. -->
+  <exclude domain="file" path="models/" tools:ignore="FullBackupContent"/>
+  <exclude domain="database" path="yomiji.db" tools:ignore="FullBackupContent"/>
+</full-backup-content>

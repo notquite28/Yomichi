@@ -41,7 +41,7 @@
     },
     "owner": "notquite",
     "updates": {
-      "url": "https://u.expo.dev/1027f19d-260b-4b0e-8d14-88a52844763a"
+      "enabled": false
     }
   }
 }

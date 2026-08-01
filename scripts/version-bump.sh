@@ -35,8 +35,6 @@ node -e "
   app.expo.version = ver;
   app.expo.android.versionCode = oldCode + 1;
   app.expo.ios.buildNumber = String(oldCode + 1);
-  app.expo.ios.runtimeVersion = ver;
-  app.expo.android.runtimeVersion = ver;
   fs.writeFileSync(path, JSON.stringify(app, null, 2) + '\n');
 " "$APPJSON" "$NEW"
 

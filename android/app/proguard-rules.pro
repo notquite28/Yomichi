@@ -12,3 +12,6 @@
 -keep class com.facebook.react.turbomodule.** { *; }
 
 # Add any project specific keep options here:
+
+# llama.rn — plain TurboModule, no consumer proguard rules shipped.
+-keep class com.rnllama.** { *; }
