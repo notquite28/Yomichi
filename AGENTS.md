@@ -2,9 +2,11 @@
 
 ## Project Overview
 
-Yomiji (読路) is a private Expo/React Native + TypeScript WaniKani study app for Android/iOS. It authenticates with a WaniKani API token, downloads user/subject/assignment/study-material/review-stat data into SQLite, then runs dashboard, lessons, reviews, practice, search, details, diagnostics, notifications, optional offline Study Coach (TinySwallow via `llama.rn`), and local study-material edits from cache.
+Yomiji (読路) is a private Expo/React Native + TypeScript WaniKani study app for Android/iOS. It authenticates with a WaniKani API token, downloads user/subject/assignment/study-material/review-stat data into SQLite, then runs dashboard, lessons, reviews, practice, search, details, diagnostics, notifications, an optional offline Study Coach (TinySwallow via `llama.rn`), and local study-material edits from cache.
 
 Core domain logic (review state machine, answer checker, lesson flow, sync architecture, settings) was ported from the Tsurukame iOS app. `tsurukame/` is a gitignored behavior reference only — do not ship or import from it.
+
+Distribution is direct: a signed arm64-v8a APK attached to GitHub Releases. There is no app store and no OTA. `expo-updates` is removed and `app.json` sets `updates.enabled: false`. The app checks GitHub Releases itself for an update banner (`src/domain/update/updateService.ts`).
 
 ## Architecture & Data Flow
 
@@ -31,6 +33,11 @@ Core domain logic (review state machine, answer checker, lesson flow, sync archi
 - `src/domain/ai/` — TinySwallow model catalog/download, coach generation, structured-output validation, prompt builders, cache.
 - `src/domain/dashboard/` — dashboard aggregation plus deterministic study-summary facts.
 - `src/domain/answers/` — answer checker and romaji→kana input (`retry` results must not score or submit).
+- `src/domain/api/` — WaniKani v2 REST client: Bearer auth, cursor pagination, 429 backoff, rate-limit budget.
+- `src/domain/notifications/` — review notification scheduling behind an Expo-Go-safe wrapper (`expoNotifications.ts`; all notification code imports it, never `expo-notifications` directly).
+- `src/domain/storage/` — SecureStore API token persistence.
+- `src/domain/subjects/` — radical image and SVG helpers.
+- `src/domain/update/` — GitHub release update check and banner dismissal.
 - `src/screens/` — route-level UI orchestration; screens read repositories/services, not live WK API.
 - `src/components/` — reusable themed UI: layout, session controls, charts, subject details, pills, toasts, coach panel.
 - `src/navigation/` — typed native stack, auth gate, lifecycle sync.
@@ -40,6 +47,7 @@ Core domain logic (review state machine, answer checker, lesson flow, sync archi
 - `android/` — checked-in native Android project; release-relevant, not disposable Expo output.
 - `config-plugins/` — Expo config plugins (Android predictive back gesture).
 - `scripts/` — release/version helper scripts.
+- Root docs — `README.md`, `ROADMAP.md` (Tsurukame parity), `USER_MANUAL.md`, `TINYSWALLOW_INTEGRATION_SPEC.md`; `docs/` itself is gitignored.
 
 ## Development Commands
 
@@ -94,18 +102,20 @@ No lint or formatter script is defined in `package.json`.
 - `src/domain/dashboard/studySummary.ts` — deterministic study-summary facts and fallback prose.
 - `src/domain/settings/settings.ts` and `settingsStore.ts` — app settings defaults, migrations, storage.
 - `src/domain/notifications/notificationService.ts` — review notification scheduling.
+- `src/domain/update/updateService.ts` — GitHub latest-release check; `updateDismissal.ts` — per-version banner state.
 - `src/screens/DashboardScreen.tsx`, `ReviewSessionScreen.tsx`, `LessonSessionScreen.tsx`, `SettingsScreen.tsx`, `WeakSpotClinicScreen.tsx`, `DiagnosticsScreen.tsx` — main user flows.
 - `package.json`, `app.json`, `eas.json`, `tsconfig.json`, `jest.config.js`, `tailwind.config.js`, `metro.config.js`, `babel.config.js` — tooling/build config.
 - `scripts/version-bump.sh` — bumps package/app/native versions, commits `Release vX.Y.Z`, tags `vX.Y.Z`.
-- `.github/workflows/android-release.yml` — Android release: typecheck, test, Gradle `assembleRelease` with ABI splits, sign, GitHub Release (`yomiji-arm64-v8a.apk` + `yomiji-armeabi-v7a.apk`).
+- `.github/workflows/android-release.yml` — Android release: typecheck, test, Gradle `assembleRelease` with ABI splits, sign, GitHub Release (`yomiji-arm64-v8a.apk`).
 
 ## Runtime/Tooling Preferences
 
 - Runtime/toolchain: Node 22, pnpm 9, Java 17 in CI; Expo SDK 55, React 19, React Native 0.83, Hermes and RN New Architecture enabled for Android.
-- `pnpm-lock.yaml` is the lockfile. Keep it current; do not switch package managers.
+- `pnpm-lock.yaml` is the lockfile. Keep it current; do not switch package managers. `pnpm-workspace.yaml` allowlists native builds (`better-sqlite3`, `llama.rn`).
 - `pnpm start` uses the Expo dev-client workflow, not plain Expo Go. Build/install a dev client with `pnpm android` or `pnpm ios` first.
 - NativeWind v4 is wired through `global.css`, `babel.config.js` (`nativewind/babel`), `metro.config.js` (`withNativeWind`), `tailwind.config.js`, and `nativewind-env.d.ts`. Tailwind scans only `App.tsx` and `src/**/*.{ts,tsx}`.
 - `app.json` controls Expo app identity, plugins (`expo-secure-store`, `expo-sqlite`, `expo-notifications`, `llama.rn`, predictive-back plugin), permissions, OTA updates, and runtime versions. Keep native Android config aligned when changing release-relevant settings.
+- Android: checked-in native project, Gradle 9, arm64-v8a-only ABI splits (`reactNativeArchitectures=arm64-v8a`; llama.rn native libs are arm64-only), R8 minification on (`android.enableMinifyInReleaseBuilds=true`) with keep rules for `com.rnllama.**`, reanimated, and TurboModules. `android/app/src/main/assets/ggml-hexagon/` ships llama.rn's Hexagon NPU libs and `syncRNLlamaHtpAssets` refreshes them on build — do not disable the task or delete the assets; llama.rn auto-selects the Hexagon backend in native code on supported devices.
 - Android release CI signs via secrets `YOMIJI_KEYSTORE_BASE64` and `YOMIJI_KEYSTORE_PASSWORD` (alias `yomiji`) and builds per-ABI APKs with `./gradlew :app:assembleRelease` (not EAS). Local/CI signing env vars: `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`.
 - EAS is configured for APK profiles (`eas.json` `appVersionSource: local`); prefer `pnpm version:bump <patch|minor|major>` over manual version edits.
 - Watch version drift across `package.json`, `app.json` (version/runtimeVersion/buildNumber/versionCode), and `android/app/build.gradle` (`versionName`/`versionCode`).
