@@ -1,7 +1,7 @@
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Animated, { FadeIn, FadeInDown, FadeOut, FadeOutDown, LinearTransition } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, FadeOutDown, LinearTransition } from 'react-native-reanimated';
 
 import { TooltipPressable } from './TooltipPressable';
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
@@ -45,7 +45,6 @@ const pillEntrance = () => FadeInDown.springify().damping(22).stiffness(230).mas
 const pillExit = () => FadeOutDown.duration(140);
 const controlMotion = () => LinearTransition.springify().damping(26).stiffness(240).mass(0.7);
 const controlEntrance = () => FadeIn.duration(160).delay(35);
-const controlExit = () => FadeOut.duration(110);
 
 export function FloatingReviewPill({
   subjectColor,
@@ -351,11 +350,13 @@ function AnimatedIconButton({
   effectivePillBg?: string;
   iconColor?: string;
 }) {
+  // Removed actions must disappear synchronously when feedback changes.
+  // An exiting animation keeps the previous phase's actions mounted while
+  // the next phase renders, which mixes feedback and pre-feedback controls.
   return (
     <AnimatedView
       className="flex-1 items-center"
       entering={controlEntrance()}
-      exiting={controlExit()}
       layout={controlMotion()}
     >
       <IconButton
